@@ -1,0 +1,86 @@
+use serde::Deserialize;
+use dotenvy::dotenv;
+use std::env;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Config {
+    pub discord_token: String,
+    pub application_id: u64,
+    pub llama_url: String,
+    pub llama_model: String,
+    pub embedding_url: String,
+    pub embedding_model: String,
+    pub database_url: String,
+    pub system_prompt: String,
+    pub max_context_messages: usize,
+    pub status_message: String,
+}
+
+impl Config {
+    pub fn from_env() -> anyhow::Result<Self> {
+        dotenv().ok();
+        Self::build()
+    }
+
+    fn build() -> anyhow::Result<Self> {
+        Ok(Config {
+            discord_token: env::var("DISCORD_TOKEN")
+                .map_err(|_| anyhow::anyhow!("DISCORD_TOKEN must be set"))?,
+            application_id: env::var("APPLICATION_ID")
+                .map_err(|_| anyhow::anyhow!("APPLICATION_ID must be set"))?
+                .parse()
+                .map_err(|_| anyhow::anyhow!("APPLICATION_ID must be a valid u64"))?,
+            llama_url: env::var("LLAMA_URL")
+                .unwrap_or_else(|_| "http://localhost:8080".to_string()),
+            llama_model: env::var("LLAMA_MODEL")
+                .unwrap_or_else(|_| "local-model".to_string()),
+            embedding_url: env::var("EMBEDDING_URL")
+                .unwrap_or_else(|_| env::var("LLAMA_URL").unwrap_or_else(|_| "http://localhost:8080".to_string())),
+            embedding_model: env::var("EMBEDDING_MODEL")
+                .unwrap_or_else(|_| "local-model".to_string()),
+            database_url: env::var("DATABASE_URL")
+                .unwrap_or_else(|_| "data/mascord.db".to_string()),
+            system_prompt: env::var("SYSTEM_PROMPT")
+                .unwrap_or_else(|_| "You are Mascord, a helpful Discord assistant. Be concise and accurate.".to_string()),
+            max_context_messages: env::var("MAX_CONTEXT_MESSAGES")
+                .unwrap_or_else(|_| "10".to_string())
+                .parse()
+                .unwrap_or(10),
+            status_message: env::var("STATUS_MESSAGE")
+                .unwrap_or_else(|_| "Ready to assist!".to_string()),
+        })
+    }
+}
+
+/// Discord message limit is 2000 characters
+pub const DISCORD_MESSAGE_LIMIT: usize = 2000;
+/// Embed description limit is 4096 characters  
+pub const DISCORD_EMBED_LIMIT: usize = 4096;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    #[test]
+    fn test_config_defaults() {
+        env::set_var("DISCORD_TOKEN", "test_token");
+        env::set_var("APPLICATION_ID", "12345");
+        
+        let config = Config::build().unwrap();
+        
+        assert_eq!(config.discord_token, "test_token");
+        assert_eq!(config.application_id, 12345);
+        
+        env::remove_var("DISCORD_TOKEN");
+        env::remove_var("APPLICATION_ID");
+    }
+
+    #[test]
+    fn test_config_missing_vars() {
+        env::remove_var("DISCORD_TOKEN");
+        env::remove_var("APPLICATION_ID");
+        let result = Config::build();
+        assert!(result.is_err());
+    }
+}
