@@ -8,9 +8,25 @@ General bot setup, command registration, and event lifecycle management.
 - `src/config.rs`: Configuration handling (env vars, constants).
 - `src/commands/mod.rs`: Command registration and grouping.
 
+## Configuration & Environment
+The bot is configured via environment variables (see `.env.example`).
+- `DISCORD_TOKEN`: Bot token from Discord Developer Portal.
+- `APPLICATION_ID`: Discord application ID.
+- `OWNER_ID`: (Optional) ID of the bot owner for admin-restricted commands.
+- `YOUTUBE_COOKIES`: (Optional) Path to cookies file for `yt-dlp`.
+
 ## Interfaces
 - **External**: Discord Gateway WebSocket.
 - **Internal**: Provides `Data` struct to all commands via Poise context.
 
 ## State Management
-Uses Poise's shared `Data` struct (thread-safe, wrapped in `Arc` by the framework).
+Uses Poise's shared `Data` struct (thread-safe, wrapped in `Arc` by the framework), containing:
+- `Config`: Loaded environment settings.
+- `LlmClient`: Connection to LLM provider.
+- `Database`: SQLite message and embedding storage.
+- `MessageCache`: In-memory LRU cache of recent messages.
+- `ToolRegistry`: Registry of callable tools.
+- `McpClientManager`: Manager for MCP server connections.
+
+## Security
+Commands restricted to the bot owner use the `owner_id` check from `src/config.rs`.

@@ -1,5 +1,6 @@
 use crate::{Context, Error};
 use crate::config::{DISCORD_MESSAGE_LIMIT, DISCORD_EMBED_LIMIT};
+use crate::context::ConversationContext;
 use async_openai::types::{
     ChatCompletionRequestSystemMessageArgs, 
     ChatCompletionRequestUserMessageArgs, 
@@ -16,32 +17,49 @@ pub async fn chat(
 ) -> Result<(), Error> {
     ctx.defer().await?;
 
-    let config = &ctx.data().config;
-    let llm_client = &ctx.data().llm_client;
-    
     // Build messages with configurable system prompt
-    let messages: Vec<ChatCompletionRequestMessage> = vec![
+    let mut messages: Vec<ChatCompletionRequestMessage> = vec![
         ChatCompletionRequestSystemMessageArgs::default()
-            .content(config.system_prompt.clone())
-            .build()?
-            .into(),
-        ChatCompletionRequestUserMessageArgs::default()
-            .content(message.clone())
+            .content(ctx.data().config.system_prompt.clone())
             .build()?
             .into(),
     ];
-
-    let response = match llm_client.chat(messages).await {
-        Ok(r) => r,
-        Err(e) => {
-            ctx.say(format!("❌ LLM Error: {}", e)).await?;
-            return Ok(());
-        }
-    };
     
+    // Inject channel context (recent messages)
+    let context_messages = ConversationContext::get_context_for_channel(
+        &ctx.data().cache,
+        &ctx.data().db,
+        &ctx.data().config,
+        ctx.channel_id(),
+        ctx.guild_id().map(|id| id.get()),
+        Some(ctx.data().bot_id),
+    );
+    messages.extend(context_messages);
+    
+    // Add the current user message
+    messages.push(
+        ChatCompletionRequestUserMessageArgs::default()
+            .content(format!("[{}]: {}", ctx.author().name, message.clone()))
+            .build()?
+            .into(),
+    );
+
+    let query_msg = ctx.say("Thinking...").await?;
+
+    let agent = crate::llm::agent::Agent::new(ctx.data());
+    let response = match agent.run(messages, 10).await {
+        Ok(r) => r,
+        Err(e) => format!("❌ Assistant Error: {}", e),
+    };
+
     // Handle long responses with embeds
     send_response(&ctx, &response).await?;
     
+    // Attempt to delete the "Thinking..." message to clean up
+    if let Ok(m) = query_msg.into_message().await {
+        let _ = m.delete(ctx).await;
+    }
+
     Ok(())
 }
 

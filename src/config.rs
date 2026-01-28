@@ -1,6 +1,8 @@
 use serde::Deserialize;
 use dotenvy::dotenv;
 use std::env;
+use std::fs;
+use crate::mcp::config::McpServerConfig;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -18,7 +20,16 @@ pub struct Config {
     pub max_context_messages: usize,
     pub status_message: String,
     pub youtube_cookies: Option<String>,
+    pub mcp_servers: Vec<McpServerConfig>,
+    // Context persistence settings
+    pub context_message_limit: usize,
+    pub context_retention_hours: u64,
 }
+
+const DEFAULT_SYSTEM_PROMPT: &str = "You are Mascord, a powerful and helpful Discord assistant. \
+You have access to various tools and Model Context Protocol (MCP) servers to perform actions and fetch live data. \
+When a user request requires action (like playing music, searching history, or fetching web content), you MUST use the appropriate tool. \
+Be concise, accurate, and proactive in using your available capabilities.";
 
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
@@ -48,7 +59,7 @@ impl Config {
             database_url: env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "data/mascord.db".to_string()),
             system_prompt: env::var("SYSTEM_PROMPT")
-                .unwrap_or_else(|_| "You are Mascord, a helpful Discord assistant. Be concise and accurate.".to_string()),
+                .unwrap_or_else(|_| DEFAULT_SYSTEM_PROMPT.to_string()),
             max_context_messages: env::var("MAX_CONTEXT_MESSAGES")
                 .unwrap_or_else(|_| "10".to_string())
                 .parse()
@@ -56,7 +67,39 @@ impl Config {
             status_message: env::var("STATUS_MESSAGE")
                 .unwrap_or_else(|_| "Ready to assist!".to_string()),
             youtube_cookies: env::var("YOUTUBE_COOKIES").ok(),
+            mcp_servers: Self::load_mcp_servers()?,
+            context_message_limit: env::var("CONTEXT_MESSAGE_LIMIT")
+                .unwrap_or_else(|_| "50".to_string())
+                .parse()
+                .unwrap_or(50),
+            context_retention_hours: env::var("CONTEXT_RETENTION_HOURS")
+                .unwrap_or_else(|_| "24".to_string())
+                .parse()
+                .unwrap_or(24),
         })
+    }
+
+    pub fn load_mcp_servers() -> anyhow::Result<Vec<McpServerConfig>> {
+        if let Ok(content) = fs::read_to_string("mcp_servers.toml") {
+            if let Ok(servers) = toml::from_str(&content) {
+                return Ok(servers);
+            }
+        }
+        
+        // Fallback to env variable
+        if let Ok(env_servers) = env::var("MCP_SERVERS") {
+            if let Ok(servers) = serde_json::from_str(&env_servers) {
+                return Ok(servers);
+            }
+        }
+        
+        Ok(Vec::new())
+    }
+
+    pub fn save_mcp_servers(servers: &[McpServerConfig]) -> anyhow::Result<()> {
+        let content = toml::to_string(servers)?;
+        fs::write("mcp_servers.toml", content)?;
+        Ok(())
     }
 }
 

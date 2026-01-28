@@ -1,0 +1,105 @@
+# Mascord: The Agentic Discord Assistant
+
+**Mascord** is a high-performance, modular Discord bot written in Rust. It combines any **OpenAI-compatible LLM** (like `llama.cpp`, LocalAI, vLLM, or OpenAI itself), Retrieval-Augmented Generation (RAG), and a native music player with an advanced **Agentic** core powered by the Model Context Protocol (MCP).
+
+---
+
+## ✨ Key Features
+
+- 🧠 **Three-Tier Persistent Memory**: Advanced context management featuring:
+  - **Short-Term**: Verbatim recent conversation history (last 50 messages).
+  - **Working Memory**: Condensing older interactions into persistent summaries via autonomous background jobs or manual triggers.
+  - **Long-Term**: On-demand retrieval and LLM-powered summarization of historical messages (RAG).
+- 🎵 **Interactive Music Player**: High-quality streaming with a rich UI:
+  - **Interactive Queue**: Paginated queue display with control buttons (Pause, Skip, Stop).
+  - **Deep Integration**: Uses `yt-dlp` and `songbird` with cookie support for detection bypass and age-restricted content.
+- 🤖 **Agentic Core**: An autonomous agent trained to use internal and external tools (via MCP) to solve complex, multi-step requests.
+- ⚙️ **Configurable Settings**: Per-guild configuration for context limits, retention policies, and manual working-memory refreshes.
+
+---
+
+## 🚀 Setup & Installation
+
+### 1. Prerequisites
+
+Mascord requires the following external tools for full functionality:
+- **Rust Toolchain**: [Install Rust](https://rustup.rs/)
+- **yt-dlp**: Required for YouTube metadata and audio. [Install yt-dlp](https://github.com/yt-dlp/yt-dlp#installation)
+- **FFmpeg**: Required for audio processing. [Install FFmpeg](https://ffmpeg.org/download.html)
+- **LLM Provider**: Any OpenAI-compatible API (e.g., `llama.cpp`, LocalAI, vLLM, or OpenAI).
+
+### 2. Configuration (`.env`)
+
+Copy `.env.example` to `.env` and configure the following variables:
+
+| Variable | Description |
+|----------|-------------|
+| `DISCORD_TOKEN` | Your bot's token from the Discord Developer Portal. |
+| `APPLICATION_ID` | Your bot's application ID. |
+| `LLAMA_URL` | The endpoint for your LLM completion API. |
+| `EMBEDDING_URL` | The endpoint for your embedding API (can be the same as LLAMA_URL). |
+| `YOUTUBE_COOKIES` | (Optional) Path to a Netscape-format cookies.txt for YouTube. |
+| `CONTEXT_MESSAGE_LIMIT` | Max verbatim messages to include in short-term context (default: 50). |
+
+### 3. MCP Servers (`mcp_servers.toml`)
+
+To extend the bot's capabilities, add MCP server configurations to `mcp_servers.toml`:
+```toml
+[[servers]]
+name = "web-search"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-fetch"]
+```
+
+---
+
+## 🛠️ Usage Guide
+
+### 🧬 The Memory System
+Mascord doesn't just "see" the last message. It manages context in three layers:
+1. **Passive Observation**: The bot reads all messages (even without mentions) to maintain a live history.
+2. **Conversation Context**: When you run `/chat`, it automatically pulls the last ~50 messages into the LLM's prompt.
+3. **Working Memory**: For very long conversations, use `/settings context summarize`. This condenses the history into a "Working Memory" snippet that the bot always sees.
+4. **Historical Search**: Use `/search` or tell the bot to "search for X" to trigger the RAG engine over months of historical logs.
+
+### 🎵 Music Player Tips
+- **Buttons**: The `/queue` command provides interactive buttons. You don't need to memorize commands once playback starts.
+- **Cookies**: If you encounter `403 Forbidden` errors from YouTube, export your browser cookies to a `cookies.txt` and set the `YOUTUBE_COOKIES` path in your `.env`.
+
+### 🤖 Multi-Step Tasks (Agent)
+Use `/agent` for requests that require multiple actions. 
+*Example: "Search for the last time we talked about the API design, summarize it, and then play some lofi music."*
+
+---
+
+## 📋 Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `/chat` | Chat with the bot using current context memory. |
+| `/search` | Manually search through the RAG database. |
+| `/agent` | Task the bot to perform a complex, multi-step action. |
+| `/play` | Stream audio from a YouTube URL. |
+| `/queue` | View the interactive, paginated music player. |
+| `/settings context` | Manage context limits or trigger common memory refreshes. |
+| `/admin shutdown` | Safely save state and exit (Owner Only). |
+
+---
+
+## 📖 Documentation
+
+For deeper insights into the project, explore the `docs/` directory:
+
+- [Requirements](file:///home/lkless/project/code/mascord/docs/REQUIREMENTS.md): Detailed functional and non-functional goals.
+- [Architecture](file:///home/lkless/project/code/mascord/docs/ARCHITECTURE.md): System design, component overview, and data flow.
+- [Component Docs](file:///home/lkless/project/code/mascord/docs/COMPONENT_BOT_DOCS.md): Deep dives into specific modules (Bot, LLM, RAG, Voice, Tools).
+
+---
+
+## 🤝 Contribution
+
+Mascord follows a modular architecture. Feel free to contribute by adding new tools to `src/tools/` or extending the Agentic capabilities via new MCP server integrations.
+
+---
+
+*Built with ❤️ using Serenity, Poise, and Songbird.*

@@ -34,7 +34,7 @@ pub async fn search(
     }
 
     // Perform search (Implementation in Database)
-    let results = db.search_messages(embedding, filter).await?;
+    let results = db.search_messages(&query, embedding, filter).await?;
 
     if results.is_empty() {
         ctx.say("No relevant messages found.").await?;

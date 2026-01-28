@@ -1,10 +1,18 @@
 use async_openai::{
     config::OpenAIConfig,
-    types::{CreateChatCompletionRequestArgs, ChatCompletionRequestMessage},
+    types::{
+        CreateChatCompletionRequestArgs, 
+        ChatCompletionRequestMessage,
+        ChatCompletionTool,
+        ChatCompletionToolType,
+        FunctionObject,
+    },
     Client,
 };
+use serde_json::Value;
 use crate::config::Config;
 
+#[derive(Clone)]
 pub struct LlmClient {
     chat_client: Client<OpenAIConfig>,
     embedding_client: Client<OpenAIConfig>,
@@ -40,22 +48,57 @@ impl LlmClient {
         }
     }
 
+    pub async fn chat_with_tools(
+        &self, 
+        messages: Vec<ChatCompletionRequestMessage>,
+        tools: Option<Vec<Value>>,
+    ) -> anyhow::Result<async_openai::types::CreateChatCompletionResponse> {
+        let mut request_builder = CreateChatCompletionRequestArgs::default();
+        request_builder.model(&self.chat_model)
+            .messages(messages);
+
+        if let Some(tools_vec) = tools {
+            let openai_tools: Vec<ChatCompletionTool> = tools_vec.into_iter().filter_map(|t| {
+                let func = serde_json::from_value::<FunctionObject>(t["function"].clone()).ok()?;
+                Some(ChatCompletionTool {
+                    r#type: ChatCompletionToolType::Function,
+                    function: func,
+                })
+            }).collect();
+            
+            if !openai_tools.is_empty() {
+                request_builder.tools(openai_tools);
+            }
+        }
+
+        let request = request_builder.build()?;
+        let response = self.chat_client.chat().create(request).await?;
+        Ok(response)
+    }
+
     pub async fn chat(
         &self, 
         messages: Vec<ChatCompletionRequestMessage>
     ) -> anyhow::Result<String> {
-        let request = CreateChatCompletionRequestArgs::default()
-            .model(&self.chat_model)
-            .messages(messages)
-            .build()?;
-
-        let response = self.chat_client.chat().create(request).await?;
+        let response = self.chat_with_tools(messages, None).await?;
         
         let content = response.choices.first()
             .and_then(|choice| choice.message.content.clone())
             .unwrap_or_else(|| "No response from LLM".to_string());
 
         Ok(content)
+    }
+
+    /// Simple string completion for internal tasks (summarization, etc)
+    pub async fn completion(&self, prompt: &str) -> anyhow::Result<String> {
+        use async_openai::types::ChatCompletionRequestUserMessageArgs;
+        
+        let message = ChatCompletionRequestUserMessageArgs::default()
+            .content(prompt)
+            .build()?
+            .into();
+            
+        self.chat(vec![message]).await
     }
 
     pub async fn get_embeddings(&self, text: &str) -> anyhow::Result<Vec<f32>> {
