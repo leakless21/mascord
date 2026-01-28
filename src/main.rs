@@ -1,5 +1,5 @@
 use mascord::{config::Config, Data};
-use mascord::commands::{chat, rag, music};
+use mascord::commands::{chat, rag, music, admin};
 use poise::serenity_prelude as serenity;
 use tracing::{info, error};
 use songbird::serenity::SerenityInit;
@@ -22,7 +22,11 @@ async fn main() -> anyhow::Result<()> {
                 music::play(),
                 music::skip(),
                 music::leave(),
+                music::play(),
+                music::skip(),
+                music::leave(),
                 music::queue(),
+                admin::shutdown(),
             ],
             event_handler: |_ctx, event, _framework, data| {
                 Box::pin(async move {

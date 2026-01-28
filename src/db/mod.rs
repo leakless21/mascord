@@ -106,14 +106,18 @@ mod tests {
         Config {
             discord_token: "test".to_string(),
             application_id: 0,
+            owner_id: Some(1),
             llama_url: "test".to_string(),
             llama_model: "test".to_string(),
+            llama_api_key: None,
             embedding_url: "test".to_string(),
             embedding_model: "test".to_string(),
+            embedding_api_key: None,
             database_url: ":memory:".to_string(),
             system_prompt: "test".to_string(),
             max_context_messages: 10,
             status_message: "test".to_string(),
+            youtube_cookies: None,
         }
     }
 

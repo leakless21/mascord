@@ -54,6 +54,12 @@ pub async fn play(
         let mut handler = handler_lock.lock().await;
 
         let source = YoutubeDl::new(ctx.data().http_client.clone(), url.clone());
+        
+        // TODO: Implement cookie passing to yt-dlp when using songbird's YoutubeDl source
+        if let Some(_cookies) = &ctx.data().config.youtube_cookies {
+            // log::warn!("YOUTUBE_COOKIES is set but not yet passed to yt-dlp source");
+        }
+
         handler.enqueue_input(source.into()).await;
 
         let embed = CreateEmbed::new()

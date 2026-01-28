@@ -6,14 +6,18 @@ use std::env;
 pub struct Config {
     pub discord_token: String,
     pub application_id: u64,
+    pub owner_id: Option<u64>,
     pub llama_url: String,
     pub llama_model: String,
+    pub llama_api_key: Option<String>,
     pub embedding_url: String,
     pub embedding_model: String,
+    pub embedding_api_key: Option<String>,
     pub database_url: String,
     pub system_prompt: String,
     pub max_context_messages: usize,
     pub status_message: String,
+    pub youtube_cookies: Option<String>,
 }
 
 impl Config {
@@ -30,14 +34,17 @@ impl Config {
                 .map_err(|_| anyhow::anyhow!("APPLICATION_ID must be set"))?
                 .parse()
                 .map_err(|_| anyhow::anyhow!("APPLICATION_ID must be a valid u64"))?,
+            owner_id: env::var("OWNER_ID").ok().and_then(|id| id.parse().ok()),
             llama_url: env::var("LLAMA_URL")
                 .unwrap_or_else(|_| "http://localhost:8080".to_string()),
             llama_model: env::var("LLAMA_MODEL")
                 .unwrap_or_else(|_| "local-model".to_string()),
+            llama_api_key: env::var("LLAMA_API_KEY").ok(),
             embedding_url: env::var("EMBEDDING_URL")
                 .unwrap_or_else(|_| env::var("LLAMA_URL").unwrap_or_else(|_| "http://localhost:8080".to_string())),
             embedding_model: env::var("EMBEDDING_MODEL")
                 .unwrap_or_else(|_| "local-model".to_string()),
+            embedding_api_key: env::var("EMBEDDING_API_KEY").ok(),
             database_url: env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "data/mascord.db".to_string()),
             system_prompt: env::var("SYSTEM_PROMPT")
@@ -48,6 +55,7 @@ impl Config {
                 .unwrap_or(10),
             status_message: env::var("STATUS_MESSAGE")
                 .unwrap_or_else(|_| "Ready to assist!".to_string()),
+            youtube_cookies: env::var("YOUTUBE_COOKIES").ok(),
         })
     }
 }

@@ -14,13 +14,23 @@ pub struct LlmClient {
 
 impl LlmClient {
     pub fn new(config: &Config) -> Self {
-        let chat_config = OpenAIConfig::new()
-            .with_api_base(&config.llama_url)
-            .with_api_key("unused");
+        let mut chat_config = OpenAIConfig::new()
+            .with_api_base(&config.llama_url);
+        
+        if let Some(key) = &config.llama_api_key {
+            chat_config = chat_config.with_api_key(key);
+        } else {
+            chat_config = chat_config.with_api_key("unused");
+        }
             
-        let embedding_config = OpenAIConfig::new()
-            .with_api_base(&config.embedding_url)
-            .with_api_key("unused");
+        let mut embedding_config = OpenAIConfig::new()
+            .with_api_base(&config.embedding_url);
+
+        if let Some(key) = &config.embedding_api_key {
+            embedding_config = embedding_config.with_api_key(key);
+        } else {
+            embedding_config = embedding_config.with_api_key("unused");
+        }
 
         Self {
             chat_client: Client::with_config(chat_config),
