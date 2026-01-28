@@ -60,6 +60,15 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 - **Interface**: `src/summarize.rs`.
 - **Dependencies**: `src/llm/client.rs`, `src/db/mod.rs`.
 
+## Configuration Management
+
+Mascord uses a tiered configuration system:
+1. **Source Code Constants**: Hardcoded defaults for ports (8080), models (local-model), and prompts.
+2. **Environment Variables**: Overrides from the shell environment.
+3. **.env File**: Local overrides for development/deployment convenience.
+
+The `Config` struct in `src/config.rs` is responsible for merging these sources using `dotenvy` and `std::env`.
+
 ## Data Storage
 
 ### SQLite Database

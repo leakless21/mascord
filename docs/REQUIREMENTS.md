@@ -44,6 +44,11 @@
 - Secure handling of API keys for LLM and Embedding services.
 - Graceful shutdown triggered by authorized users.
 
+### 7. Configuration & Deployment
+- The bot must provide sensible defaults for all configuration variables (LLM URLs, ports, prompts) to ensure "zero-config" functionality beyond Discord credentials.
+- All configuration should be overrideable via environment variables or a `.env` file.
+- The system should maintain an up-to-date `.env.example` that matches these internal defaults.
+
 ## Non-Functional Requirements
 
 ### 1. Performance

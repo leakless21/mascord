@@ -9,10 +9,13 @@ General bot setup, command registration, and event lifecycle management.
 - `src/commands/mod.rs`: Command registration and grouping.
 
 ## Configuration & Environment
-The bot is configured via environment variables (see `.env.example`).
-- `DISCORD_TOKEN`: Bot token from Discord Developer Portal.
-- `APPLICATION_ID`: Discord application ID.
+The bot is configured via environment variables (see `.env.example`). If a variable is missing, the bot uses sensible internal defaults defined in `src/config.rs`.
+- `DISCORD_TOKEN`: **Required**. Bot token from Discord Developer Portal.
+- `APPLICATION_ID`: **Required**. Discord application ID.
 - `OWNER_ID`: (Optional) ID of the bot owner for admin-restricted commands.
+- `LLAMA_URL`: (Default: `http://localhost:8080`) Base URL for the LLM API.
+- `EMBEDDING_URL`: (Default: `LLAMA_URL`) Base URL for the embedding API.
+- `SYSTEM_PROMPT`: (Default: Detailed agent prompt) The core instruction for the assistant.
 - `YOUTUBE_COOKIES`: (Optional) Path to cookies file for `yt-dlp`.
 
 ## Interfaces
