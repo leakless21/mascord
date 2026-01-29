@@ -1,5 +1,4 @@
 /target
-.env
 *.db
 *.db-journal
 /data
@@ -7,3 +6,4 @@
 .idea
 .DS_Store
 *.log
+.env
