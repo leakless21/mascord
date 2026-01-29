@@ -39,9 +39,13 @@ async fn main() -> anyhow::Result<()> {
     let mut config = Config::from_env()?;
     info!("Configuration loaded successfully");
 
-    // Fetch dynamic application info (ID and Owners) only if not provided in config
-    let (app_id, owner_id) = if config.application_id != 0 && config.owner_id.is_some() {
-        info!("Using configured application ID ({}) and owner ID ({:?})", config.application_id, config.owner_id);
+    // Fetch dynamic application info (ID and Owners) only if APPLICATION_ID is missing
+    let (app_id, owner_id) = if config.application_id != 0 {
+        if config.owner_id.is_none() {
+            tracing::warn!("OWNER_ID not set in config. Admin commands may not work. Skipping dynamic fetch to avoid rate limits.");
+        } else {
+            info!("Using configured application ID ({}) and owner ID ({:?})", config.application_id, config.owner_id);
+        }
         (config.application_id, config.owner_id)
     } else {
         info!("Fetching dynamic application info from Discord...");
@@ -64,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
                 (id, owner_id)
             },
             Err(e) => {
-                error!("Failed to fetch application info: {}. Falling back to config values.", e);
+                error!("Failed to fetch application info: {}. Cloudflare/Discord rate limits might be active. Falling back to config values.", e);
                 (config.application_id, config.owner_id)
             }
         }
