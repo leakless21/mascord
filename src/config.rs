@@ -31,6 +31,8 @@ pub struct Config {
     pub embedding_timeout_secs: u64,
     pub mcp_timeout_secs: u64,
     pub voice_idle_timeout_secs: u64,
+    pub dev_guild_id: Option<u64>,
+    pub register_commands: bool,
 }
 
 const DEFAULT_SYSTEM_PROMPT: &str = "You are Mascord, a powerful and helpful Discord assistant. \
@@ -105,6 +107,11 @@ impl Config {
                 .unwrap_or_else(|_| "300".to_string())
                 .parse()
                 .unwrap_or(300),
+            dev_guild_id: env::var("DEV_GUILD_ID").ok().and_then(|id| id.parse().ok()),
+            register_commands: env::var("REGISTER_COMMANDS")
+                .unwrap_or_else(|_| "false".to_string())
+                .parse()
+                .unwrap_or(false),
         })
     }
 
@@ -165,6 +172,8 @@ impl std::fmt::Debug for Config {
             .field("embedding_timeout_secs", &self.embedding_timeout_secs)
             .field("mcp_timeout_secs", &self.mcp_timeout_secs)
             .field("voice_idle_timeout_secs", &self.voice_idle_timeout_secs)
+            .field("dev_guild_id", &self.dev_guild_id)
+            .field("register_commands", &self.register_commands)
             .finish()
     }
 }

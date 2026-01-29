@@ -82,6 +82,7 @@ async fn main() -> anyhow::Result<()> {
 
     let discord_token = config.discord_token.clone();
 
+
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
             commands: vec![
@@ -136,7 +137,23 @@ async fn main() -> anyhow::Result<()> {
         .setup(|ctx, _ready, framework| {
             Box::pin(async move {
                 info!("Bot is ready!");
-                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                
+                // Optimized command registration (Ref: GAP-017 optimization)
+                if config.register_commands {
+                    if let Some(guild_id) = config.dev_guild_id {
+                        info!("Registering commands specifically to development guild: {}", guild_id);
+                        poise::builtins::register_in_guild(
+                            ctx, 
+                            &framework.options().commands, 
+                            serenity::GuildId::new(guild_id)
+                        ).await?;
+                    } else {
+                        info!("Registering commands globally (this can take up to an hour to propagate)...");
+                        poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                    }
+                } else {
+                    info!("Skipping command registration (REGISTER_COMMANDS=false). Use existing registration.");
+                }
                 
                 // Set bot status
                 ctx.set_activity(Some(serenity::ActivityData::custom(&config.status_message)));

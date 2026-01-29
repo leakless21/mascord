@@ -107,7 +107,17 @@ This document tracks identified gaps, edge cases, and potential issues requiring
 
 ---
 
-## 6. Data & Storage
+## 6. Discord API & Rate Limiting
+
+### GAP-017: Bot Hangs on Startup Rate Limit 🔴
+**Status**: Resolved ✅
+**Description**: Serenity's default behavior is to wait and retry on 429s. If hit with a long rate limit (e.g., 1900s), the bot appears hung during startup without a clear error.
+**Impact**: Poor UX, difficult to debug "silent" startup failures.
+**Resolution**: Implemented a pre-check using `reqwest` in `main.rs` that explicitly detects 429s and aborts startup with a clear message if a rate limit is active.
+
+---
+
+## 7. Data & Storage
 
 ### GAP-013: SQL Injection in Search Query 🔴
 **Status**: Open
@@ -145,6 +155,7 @@ This document tracks identified gaps, edge cases, and potential issues requiring
 - [x] **GAP-011**: Agent Loop Failure Logging (Phase 4)
 - [x] **GAP-013**: SQL Injection in Search Query (Phase 1)
 - [x] **GAP-015**: API Key Redaction in Debug (Phase 4/1)
+- [x] **GAP-017**: Bot Hangs on Startup Rate Limit (Phase 5)
 
 
 ---

@@ -6,6 +6,8 @@
 - Support Slash commands for all major features (LLM, Music, RAG).
 - **Reply-based Conversations**: Automatically respond when a user replies to the bot's messages.
 - **Universal Embed Responses**: Use embeds for all bot responses to bypass Discord's 2000-character plain text limit.
+- **R-007**: Fail fast on excessive Discord rate limits (e.g., > 60s) during startup to avoid unresponsive hanging.
+- **R-008**: Provide clear, actionable error messages when external services (Discord, LLM, MCP) are unavailable or rate-limited.
 - Event handling for message tracking (for RAG).
 - Multi-channel support.
 
