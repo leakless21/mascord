@@ -9,6 +9,7 @@ pub mod tools;
 pub mod mcp;
 pub mod context;
 pub mod summarize;
+pub mod reply;
 
 /// Custom data passed to all commands
 pub struct Data {

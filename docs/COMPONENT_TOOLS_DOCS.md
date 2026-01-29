@@ -30,7 +30,12 @@ The tooling domain handles the registration, discovery, and execution of callabl
 ## MCP Integration
 Configured via `mcp_servers.toml` (auto-created) or the `MCP_SERVERS` environment variable. 
 
+Supported servers include:
+- `brave-search`: Web search capabilities.
+- `fetch`: Web content retrieval and markdown conversion.
+
 ### Runtime Management
+
 The bot owner can manage MCP servers directly from Discord:
 - `/mcp list`: Show all configured and active servers.
 - `/mcp add`: Add a new stdio-based server (persists to TOML).

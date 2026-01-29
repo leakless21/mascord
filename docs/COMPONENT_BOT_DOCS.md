@@ -32,4 +32,4 @@ Uses Poise's shared `Data` struct (thread-safe, wrapped in `Arc` by the framewor
 - `McpClientManager`: Manager for MCP server connections.
 
 ## Security
-Commands restricted to the bot owner use the `owner_id` check from `src/config.rs`.
+Commands restricted to the bot owner use the `owner_id` check from `src/config.rs`. Sensitive configuration fields (tokens, API keys) are redacted in `Debug` logs via a custom implementation in `src/config.rs`.

@@ -11,6 +11,8 @@ use async_openai::{
 };
 use serde_json::Value;
 use crate::config::Config;
+use tracing::{info, debug, error};
+use std::time::Instant;
 
 #[derive(Clone)]
 pub struct LlmClient {
@@ -18,6 +20,8 @@ pub struct LlmClient {
     embedding_client: Client<OpenAIConfig>,
     chat_model: String,
     embedding_model: String,
+    chat_timeout: u64,
+    embedding_timeout: u64,
 }
 
 impl LlmClient {
@@ -45,6 +49,8 @@ impl LlmClient {
             embedding_client: Client::with_config(embedding_config),
             chat_model: config.llama_model.clone(),
             embedding_model: config.embedding_model.clone(),
+            chat_timeout: config.llm_timeout_secs,
+            embedding_timeout: config.embedding_timeout_secs,
         }
     }
 
@@ -53,6 +59,9 @@ impl LlmClient {
         messages: Vec<ChatCompletionRequestMessage>,
         tools: Option<Vec<Value>>,
     ) -> anyhow::Result<async_openai::types::CreateChatCompletionResponse> {
+        use tokio::time::{timeout, Duration};
+        let llm_timeout = Duration::from_secs(self.chat_timeout);
+
         let mut request_builder = CreateChatCompletionRequestArgs::default();
         request_builder.model(&self.chat_model)
             .messages(messages);
@@ -72,7 +81,19 @@ impl LlmClient {
         }
 
         let request = request_builder.build()?;
-        let response = self.chat_client.chat().create(request).await?;
+        
+        debug!("Sending chat request to {} (timeout: {}s)...", self.chat_model, self.chat_timeout);
+        let start = Instant::now();
+        let response = timeout(llm_timeout, self.chat_client.chat().create(request))
+            .await
+            .map_err(|_| {
+                error!("LLM request timed out after {}s", llm_timeout.as_secs());
+                anyhow::anyhow!("LLM request timed out after {}s", llm_timeout.as_secs())
+            })??;
+        
+        let duration = start.elapsed();
+        info!("LLM chat request to {} completed in {:?}", self.chat_model, duration);
+            
         Ok(response)
     }
 
@@ -103,15 +124,30 @@ impl LlmClient {
 
     pub async fn get_embeddings(&self, text: &str) -> anyhow::Result<Vec<f32>> {
         use async_openai::types::CreateEmbeddingRequestArgs;
+        use tokio::time::{timeout, Duration};
 
         let request = CreateEmbeddingRequestArgs::default()
             .model(&self.embedding_model)
             .input(text)
             .build()?;
 
-        let response = self.embedding_client.embeddings().create(request).await?;
+        debug!("Sending embedding request to {}...", self.embedding_model);
+        let start = Instant::now();
+        let response = timeout(Duration::from_secs(self.embedding_timeout), self.embedding_client.embeddings().create(request))
+            .await
+            .map_err(|_| {
+                error!("Embedding request timed out after {}s", self.embedding_timeout);
+                anyhow::anyhow!("Embedding request timed out after {}s", self.embedding_timeout)
+            })??;
+
+        let duration = start.elapsed();
+        info!("Embedding request to {} completed in {:?}", self.embedding_model, duration);
+
         let embedding = response.data.first()
-            .ok_or_else(|| anyhow::anyhow!("No embedding returned"))?
+            .ok_or_else(|| {
+                error!("No embedding returned from API");
+                anyhow::anyhow!("No embedding returned")
+            })?
             .embedding.clone();
 
         Ok(embedding)

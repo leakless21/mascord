@@ -15,6 +15,7 @@ use serenity::model::id::ChannelId;
 use crate::cache::MessageCache;
 use crate::config::Config;
 use crate::db::Database;
+use tracing::debug;
 
 /// Formats cached messages into LLM-compatible context messages
 pub struct ConversationContext;
@@ -47,12 +48,26 @@ impl ConversationContext {
         let limit = limit.unwrap_or(config.context_message_limit);
         let retention = retention.unwrap_or(config.context_retention_hours);
 
-        let cutoff_unix = (Utc::now() - Duration::hours(retention as i64)).timestamp();
+        let mut cutoff_unix = (Utc::now() - Duration::hours(retention as i64)).timestamp();
         
+        // 0. Check Channel Specific Settings (Scope)
+        if let Ok(Some((_enabled, Some(scope_date)))) = db.get_channel_settings(&channel_id.to_string()) {
+            // If we have a memory start date, use it if it's MORE RECENT than the retention cutoff
+            let scope_date_clone = scope_date.clone();
+            if let Ok(scope_ts) = chrono::DateTime::parse_from_str(&format!("{} +0000", scope_date), "%Y-%m-%d %H:%M:%S %z") {
+                let scope_unix = scope_ts.timestamp();
+                if scope_unix > cutoff_unix {
+                    debug!("Context: Respecting memory scope for channel {}: messages after {}", channel_id, scope_date_clone);
+                    cutoff_unix = scope_unix;
+                }
+            }
+        }
+
         let mut messages = Vec::new();
 
         // 1. Inject Working Memory (Latest Summary) if available
         if let Ok(Some(summary)) = db.get_latest_summary(&channel_id.to_string()) {
+            debug!("Context: Injecting working memory (summary) for channel {}", channel_id);
             use async_openai::types::ChatCompletionRequestSystemMessageArgs;
             if let Ok(msg) = ChatCompletionRequestSystemMessageArgs::default()
                 .content(format!("Earlier conversation summary for this channel:\n{}", summary))
@@ -63,6 +78,7 @@ impl ConversationContext {
         }
 
         // 2. Fetch Short-Term context (verbatim messages)
+        debug!("Context: Fetching up to {} messages for channel {} (retention: {}h)", limit, channel_id, retention);
         let entries = cache.get_channel_history(channel_id, limit);
         
         let mut short_term_messages: Vec<ChatCompletionRequestMessage> = entries
@@ -76,6 +92,7 @@ impl ConversationContext {
             })
             .collect();
             
+        debug!("Context: Retrieved {} short-term messages for channel {}", short_term_messages.len(), channel_id);
         messages.append(&mut short_term_messages);
         messages
     }
@@ -132,9 +149,15 @@ mod tests {
             max_context_messages: 10,
             status_message: "test".to_string(),
             youtube_cookies: None,
+            youtube_download_dir: "/tmp".to_string(),
+            youtube_cleanup_after_secs: 3600,
             mcp_servers: Vec::new(),
             context_message_limit: 5,
             context_retention_hours: 24,
+            llm_timeout_secs: 120,
+            embedding_timeout_secs: 30,
+            mcp_timeout_secs: 60,
+            voice_idle_timeout_secs: 300,
         }
     }
     

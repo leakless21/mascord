@@ -4,6 +4,8 @@
 
 ### 1. Discord Interface
 - Support Slash commands for all major features (LLM, Music, RAG).
+- **Reply-based Conversations**: Automatically respond when a user replies to the bot's messages.
+- **Universal Embed Responses**: Use embeds for all bot responses to bypass Discord's 2000-character plain text limit.
 - Event handling for message tracking (for RAG).
 - Multi-channel support.
 
@@ -24,6 +26,10 @@
   - Filter by date range.
   - Limit to latest XX days.
 - **Research Summarization**: Tool-based retrieval should provide condensed results using the LLM for better context density.
+- **Memory Control**:
+  - Enable/disable tracking per channel.
+  - Set memory scope (start date) per channel.
+  - Purge historical messages by channel or date.
 
 ### 4. YouTube Audio Playback
 - Voice channel connection/disconnection.
@@ -35,9 +41,10 @@
 ### 5. Natural Language Task Execution (Agent)
 - Orchestrate complex tasks using natural language.
 - Execute built-in tools (Music, RAG, Admin).
-- Integrate external tools via Model Context Protocol (MCP).
+- Integrate external tools via Model Context Protocol (MCP) (e.g., Brave Search, Web Fetching).
 - Multi-turn tool calling loop for autonomous problem solving.
 - Configurable iteration limits and safety checks.
+
 
 ### 6. Administration & Security
 - Admin-only commands restricted by `OWNER_ID`.

@@ -1,5 +1,5 @@
 use crate::{Context, Error};
-use crate::config::{DISCORD_MESSAGE_LIMIT, DISCORD_EMBED_LIMIT};
+use crate::config::DISCORD_EMBED_LIMIT;
 use crate::context::ConversationContext;
 use async_openai::types::{
     ChatCompletionRequestSystemMessageArgs, 
@@ -7,6 +7,7 @@ use async_openai::types::{
     ChatCompletionRequestMessage
 };
 use poise::serenity_prelude::{CreateEmbed, CreateEmbedFooter};
+use tracing::info;
 
 /// Chat with the all-in-one assistant
 #[poise::command(slash_command)]
@@ -15,6 +16,7 @@ pub async fn chat(
     #[description = "Your message to the assistant"]
     message: String,
 ) -> Result<(), Error> {
+    info!("Chat command received from {} in channel {}: {}", ctx.author().name, ctx.channel_id(), message);
     ctx.defer().await?;
 
     // Build messages with configurable system prompt
@@ -54,6 +56,7 @@ pub async fn chat(
 
     // Handle long responses with embeds
     send_response(&ctx, &response).await?;
+    info!("Assistant response sent to {} in channel {}", ctx.author().name, ctx.channel_id());
     
     // Attempt to delete the "Thinking..." message to clean up
     if let Ok(m) = query_msg.into_message().await {
@@ -63,12 +66,9 @@ pub async fn chat(
     Ok(())
 }
 
-/// Send response, using embeds for long messages
-async fn send_response(ctx: &Context<'_>, content: &str) -> Result<(), Error> {
-    if content.len() <= DISCORD_MESSAGE_LIMIT {
-        ctx.say(content).await?;
-    } else if content.len() <= DISCORD_EMBED_LIMIT {
-        // Use embed for longer content (up to 4096 chars)
+/// Send response, always using embeds to avoid plain text limits
+pub async fn send_response(ctx: &Context<'_>, content: &str) -> Result<(), Error> {
+    if content.len() <= DISCORD_EMBED_LIMIT {
         let embed = CreateEmbed::new()
             .title("🤖 Mascord Response")
             .description(content)
@@ -91,6 +91,47 @@ async fn send_response(ctx: &Context<'_>, content: &str) -> Result<(), Error> {
                 .color(0x5865F2);
             
             ctx.send(poise::CreateReply::default().embed(embed)).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Generic helper to send an embed response to a specific channel
+pub async fn send_embed_reply(
+    http: impl poise::serenity_prelude::CacheHttp,
+    channel_id: poise::serenity_prelude::ChannelId,
+    content: &str,
+    reply_to: Option<poise::serenity_prelude::MessageId>,
+) -> Result<(), Error> {
+    use poise::serenity_prelude::CreateMessage;
+
+    let mut message = CreateMessage::new();
+    if let Some(id) = reply_to {
+        message = message.reference_message((channel_id, id));
+    }
+
+    if content.len() <= DISCORD_EMBED_LIMIT {
+        let embed = CreateEmbed::new()
+            .title("🤖 Mascord Response")
+            .description(content)
+            .color(0x5865F2)
+            .footer(CreateEmbedFooter::new("Powered by llama.cpp"));
+        
+        channel_id.send_message(http, message.embed(embed)).await?;
+    } else {
+        let chunks: Vec<&str> = content
+            .as_bytes()
+            .chunks(DISCORD_EMBED_LIMIT - 100)
+            .map(|c| std::str::from_utf8(c).unwrap_or("..."))
+            .collect();
+        
+        for (i, chunk) in chunks.iter().enumerate() {
+            let embed = CreateEmbed::new()
+                .title(format!("🤖 Response (Part {}/{})", i + 1, chunks.len()))
+                .description(*chunk)
+                .color(0x5865F2);
+            
+            channel_id.send_message(&http, message.clone().embed(embed)).await?;
         }
     }
     Ok(())

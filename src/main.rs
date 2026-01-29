@@ -1,16 +1,81 @@
 use mascord::{config::Config, Data};
 use mascord::commands::{chat, rag, music, admin, mcp, settings};
 use poise::serenity_prelude as serenity;
-use tracing::{info, error};
+use tracing::{info, debug, error};
+use tracing_subscriber::{prelude::*, EnvFilter, fmt};
 use songbird::serenity::SerenityInit;
+use serenity::all::Http;
+use std::collections::HashSet;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize logging
-    tracing_subscriber::fmt::init();
+    // Initialize logging with EnvFilter
+    // Default: debug for mascord, info for key deps, warn for noisy HTTP internals
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(
+            "mascord=debug,\
+             poise=debug,\
+             serenity=debug,\
+             songbird=info,\
+             reqwest=info,\
+             async_openai=info,\
+             rusqlite=info,\
+             rmcp=info,\
+             h2=warn,\
+             hyper=warn,\
+             hyper_util=warn,\
+             rustls=warn"
+        ));
+    
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt::layer().with_target(true).compact())
+        .init();
 
+    info!("Starting Mascord...");
+    
     // Load configuration
-    let config = Config::from_env()?;
+    debug!("Loading configuration...");
+    let mut config = Config::from_env()?;
+    info!("Configuration loaded successfully");
+
+    // Fetch dynamic application info (ID and Owners) only if not provided in config
+    let (app_id, owner_id) = if config.application_id != 0 && config.owner_id.is_some() {
+        info!("Using configured application ID ({}) and owner ID ({:?})", config.application_id, config.owner_id);
+        (config.application_id, config.owner_id)
+    } else {
+        info!("Fetching dynamic application info from Discord...");
+        let http = Http::new(&config.discord_token);
+        match http.get_current_application_info().await {
+            Ok(info) => {
+                let mut owners = HashSet::new();
+                let owner_id = if let Some(team) = info.team {
+                    owners.insert(team.owner_user_id.get());
+                    Some(team.owner_user_id.get())
+                } else if let Some(owner) = &info.owner {
+                    owners.insert(owner.id.get());
+                    Some(owner.id.get())
+                } else {
+                    None
+                };
+                
+                let id = info.id.get();
+                info!("Fetched dynamic application ID: {} and owner: {:?}", id, owner_id);
+                (id, owner_id)
+            },
+            Err(e) => {
+                error!("Failed to fetch application info: {}. Falling back to config values.", e);
+                (config.application_id, config.owner_id)
+            }
+        }
+    };
+
+    // Update config with active values
+    config.application_id = app_id;
+    if config.owner_id.is_none() {
+        config.owner_id = owner_id;
+    }
+
     let discord_token = config.discord_token.clone();
 
     let framework = poise::Framework::builder()
@@ -27,22 +92,34 @@ async fn main() -> anyhow::Result<()> {
                 mcp::mcp(),
                 settings::settings(), // /settings context
             ],
-            event_handler: |_ctx, event, _framework, data| {
+            event_handler: |ctx, event, _framework, data| {
                 Box::pin(async move {
                     match event {
                         serenity::FullEvent::Message { new_message } => {
                             if !new_message.author.bot {
-                                // Populate internal cache
-                                data.cache.insert(new_message.clone());
+                                // Check if this is a reply to the bot
+                                if let Some(referenced) = &new_message.referenced_message {
+                                    if referenced.author.id.get() == data.bot_id {
+                                        if let Err(e) = mascord::reply::handle_reply(ctx, new_message, data).await {
+                                            tracing::error!("Error handling reply: {}", e);
+                                        }
+                                    }
+                                }
 
-                                let _ = data.db.save_message(
-                                    &new_message.id.to_string(),
-                                    &new_message.guild_id.map(|id| id.to_string()).unwrap_or_default(),
-                                    &new_message.channel_id.to_string(),
-                                    &new_message.author.id.to_string(),
-                                    &new_message.content,
-                                    new_message.timestamp.unix_timestamp(),
-                                );
+                                // Check if channel tracking is enabled
+                                if let Ok(true) = data.db.is_channel_tracking_enabled(&new_message.channel_id.to_string()) {
+                                    // Populate internal cache
+                                    data.cache.insert(new_message.clone());
+
+                                    let _ = data.db.save_message(
+                                        &new_message.id.to_string(),
+                                        &new_message.guild_id.map(|id| id.to_string()).unwrap_or_default(),
+                                        &new_message.channel_id.to_string(),
+                                        &new_message.author.id.to_string(),
+                                        &new_message.content,
+                                        new_message.timestamp.unix_timestamp(),
+                                    );
+                                }
                             }
                         }
                         _ => {}
@@ -110,6 +187,34 @@ async fn main() -> anyhow::Result<()> {
                     }
                 });
                 
+                // Start YouTube cleanup task
+                let download_dir = config.youtube_download_dir.clone();
+                let cleanup_secs = config.youtube_cleanup_after_secs;
+                tokio::spawn(async move {
+                    mascord::voice::cleanup::start_cleanup_task(download_dir, cleanup_secs).await;
+                });
+
+                // Start database message cleanup task (runs every hour)
+                let db_cleanup = db.clone();
+                let retention_hours = config.context_retention_hours;
+                tokio::spawn(async move {
+                    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600));
+                    loop {
+                        interval.tick().await;
+                        match db_cleanup.cleanup_old_messages(retention_hours) {
+                            Ok(count) if count > 0 => {
+                                info!("Database cleanup: deleted {} old messages (retention: {}h)", count, retention_hours);
+                            }
+                            Ok(_) => {
+                                tracing::debug!("Database cleanup: no old messages to delete");
+                            }
+                            Err(e) => {
+                                tracing::error!("Database cleanup error: {}", e);
+                            }
+                        }
+                    }
+                });
+                
                 let bot_id = config.application_id;
 
                 Ok(Data {
@@ -125,21 +230,33 @@ async fn main() -> anyhow::Result<()> {
             })
         })
         .build();
+    debug!("Poise framework built successfully");
 
     let intents = serenity::GatewayIntents::non_privileged() 
         | serenity::GatewayIntents::MESSAGE_CONTENT
         | serenity::GatewayIntents::GUILD_MESSAGES
         | serenity::GatewayIntents::GUILD_VOICE_STATES;
+    debug!("Creating Discord client...");
 
     let mut client = serenity::ClientBuilder::new(&discord_token, intents)
+        .application_id(serenity::ApplicationId::new(app_id))
         .framework(framework)
         .register_songbird()
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create client: {}", e))?;
+    info!("Discord client created successfully");
 
-    info!("Starting bot...");
+    // Graceful shutdown handler
+    let shard_manager = client.shard_manager.clone();
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.expect("Could not register ctrl+c handler");
+        info!("Received shutdown signal, closing shards...");
+        shard_manager.shutdown_all().await;
+    });
+
+    info!("Bot is connecting to Discord...");
     if let Err(why) = client.start().await {
-        error!("Client error: {:?}", why);
+        error!("Fatal client error: {:?}", why);
     }
 
     Ok(())

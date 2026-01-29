@@ -23,25 +23,46 @@
 ### 1. Prerequisites
 
 Mascord requires the following external tools for full functionality:
-- **Rust Toolchain**: [Install Rust](https://rustup.rs/)
+- **Rust Toolchain**: [Install Rust](https://rustup.rs/) (Required to build and run).
 - **yt-dlp**: Required for YouTube metadata and audio. [Install yt-dlp](https://github.com/yt-dlp/yt-dlp#installation)
 - **FFmpeg**: Required for audio processing. [Install FFmpeg](https://ffmpeg.org/download.html)
-- **LLM Provider**: Any OpenAI-compatible API (e.g., `llama.cpp`, LocalAI, vLLM, or OpenAI).
+- **LLM Provider**: Any OpenAI-compatible API (e.g., `llama.cpp` server, LocalAI, vLLM, or OpenAI).
 
 ### 2. Configuration (`.env`)
 
-Copy `.env.example` to `.env` and configure the following variables:
+Copy `.env.example` to `.env` and configure your credentials:
+```bash
+cp .env.example .env
+```
+Fill in the following essential variables:
 
 | Variable | Description |
 |----------|-------------|
 | `DISCORD_TOKEN` | Your bot's token from the Discord Developer Portal. |
 | `APPLICATION_ID` | Your bot's application ID. |
-| `LLAMA_URL` | The endpoint for your LLM completion API. |
-| `EMBEDDING_URL` | The endpoint for your embedding API (can be the same as LLAMA_URL). |
-| `YOUTUBE_COOKIES` | (Optional) Path to a Netscape-format cookies.txt for YouTube. |
-| `CONTEXT_MESSAGE_LIMIT` | Max verbatim messages to include in short-term context (default: 50). |
+| `LLAMA_URL` | The OpenAI-compatible endpoint (e.g., `http://localhost:8080/v1`). **Must include `/v1`** for most local providers and **no trailing slash**. |
+| `DATABASE_URL` | Path to the SQLite database (e.g., `data/mascord.db`). |
 
-### 3. MCP Servers (`mcp_servers.toml`)
+> [!TIP]
+> Many more settings (timeouts, retention policies, YouTube settings, etc.) are available! Check the [`.env.example`](.env.example) file for the full list of configurable options.
+
+### 3. Database Setup
+
+**Do I need to setup a database first?**
+**No.** Mascord uses SQLite and handles its own database initialization. On the first run, the bot will automatically:
+1. Create the `data` directory (if it doesn't exist).
+2. Create the SQLite database file at the path specified in `DATABASE_URL`.
+3. Initialize all necessary tables and indexes.
+
+### 4. Running the Bot
+
+Once configured, you can start the bot using Cargo:
+
+```bash
+cargo run
+```
+
+### 5. MCP Servers (`mcp_servers.toml`)
 
 To extend the bot's capabilities, add MCP server configurations to `mcp_servers.toml`:
 ```toml
@@ -69,7 +90,11 @@ Mascord doesn't just "see" the last message. It manages context in three layers:
 ### 🤖 Multi-Step Tasks (Agent)
 Use `/agent` for requests that require multiple actions. 
 *Example: "Search for the last time we talked about the API design, summarize it, and then play some lofi music."*
-
+## Future Capabilities (Roadmap)
+- [ ] **Multimodal Search**: Index image attachments and embeds in RAG using CLIP/SigLIP models.
+- [ ] **Vision Support**: Enable LLM to analyze images and screenshots shared in Discord.
+- [ ] **Enhanced Audio**: Support for Spotify and local audio collections.
+- [ ] **Web Search**: Integrated browsing tool for live information retrieval.
 ---
 
 ## 📋 Available Commands

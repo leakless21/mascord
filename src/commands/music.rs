@@ -4,6 +4,7 @@ use poise::serenity_prelude::{
     CreateEmbed, CreateButton, ButtonStyle, CreateActionRow,
     CreateInteractionResponse, CreateInteractionResponseMessage
 };
+use tracing::info;
 // use poise::serenity_prelude as serenity;
 
 /// Join a voice channel
@@ -13,8 +14,14 @@ use poise::serenity_prelude::{
     required_bot_permissions = "CONNECT | SPEAK"
 )]
 pub async fn join(ctx: Context<'_>) -> Result<(), Error> {
+    let channel_id = join_voice_channel_internal(ctx).await?;
+    ctx.say(format!("🔊 Joined <#{}>", channel_id)).await?;
+    Ok(())
+}
+
+/// Helper function to join the user's voice channel
+async fn join_voice_channel_internal(ctx: Context<'_>) -> Result<serenity::model::id::ChannelId, Error> {
     let guild_id = ctx.guild_id().ok_or("This command must be used in a server")?;
-    
     let channel_id = {
         let guild = ctx.guild().ok_or("Could not access guild")?;
         guild.voice_states
@@ -22,20 +29,33 @@ pub async fn join(ctx: Context<'_>) -> Result<(), Error> {
             .and_then(|vs| vs.channel_id)
             .ok_or("You must be in a voice channel to use this command")?
     };
+    
+    info!("Attempting to join voice channel {} for guild {}", channel_id, guild_id);
 
     let manager = songbird::get(ctx.serenity_context()).await
         .ok_or("Songbird Voice client not initialized")?.clone();
 
     match manager.join(guild_id, channel_id).await {
-        Ok(_) => {
-            ctx.say(format!("🔊 Joined <#{}>", channel_id)).await?;
+        Ok(handler_lock) => {
+            info!("Successfully joined voice channel {} for guild {}", channel_id, guild_id);
+            let mut handler = handler_lock.lock().await;
+            
+            // Add idle handler to leave after 5 mins of no tracks
+            handler.add_global_event(
+                songbird::Event::Track(songbird::TrackEvent::End),
+                crate::voice::events::IdleHandler {
+                    guild_id,
+                    manager: manager.clone(),
+                    idle_timeout_secs: ctx.data().config.voice_idle_timeout_secs,
+                },
+            );
+            
+            Ok(channel_id)
         }
         Err(e) => {
-            ctx.say(format!("❌ Failed to join voice channel: {}", e)).await?;
+            Err(format!("❌ Failed to join voice channel: {}", e).into())
         }
     }
-
-    Ok(())
 }
 
 /// Play audio from YouTube
@@ -54,27 +74,30 @@ pub async fn play(
     let manager = songbird::get(ctx.serenity_context()).await
         .ok_or("Songbird Voice client not initialized")?.clone();
 
-    if let Some(handler_lock) = manager.get(guild_id) {
-        let mut handler = handler_lock.lock().await;
-
-        let source = YoutubeDl::new(ctx.data().http_client.clone(), url.clone());
-        
-        // TODO: Implement cookie passing to yt-dlp when using songbird's YoutubeDl source
-        if let Some(_cookies) = &ctx.data().config.youtube_cookies {
-            // log::warn!("YOUTUBE_COOKIES is set but not yet passed to yt-dlp source");
-        }
-
-        handler.enqueue_input(source.into()).await;
-
-        let embed = CreateEmbed::new()
-            .title("🎵 Added to Queue")
-            .description(format!("```{}```", truncate(&url, 100)))
-            .color(0x57F287);
-        
-        ctx.send(poise::CreateReply::default().embed(embed)).await?;
+    let handler_lock = if let Some(hl) = manager.get(guild_id) {
+        hl
     } else {
-        ctx.say("❌ I'm not in a voice channel. Use `/join` first.").await?;
+        info!("Not in a voice channel, attempting auto-join for guild {}", guild_id);
+        join_voice_channel_internal(ctx).await?;
+        manager.get(guild_id).ok_or("Failed to retrieve handler after join")?
+    };
+
+    let mut handler = handler_lock.lock().await;
+
+    if let Some(cookies) = &ctx.data().config.youtube_cookies {
+        std::env::set_var("YTDL_ARGS", format!("--cookies {}", cookies));
     }
+
+    let source = YoutubeDl::new(ctx.data().http_client.clone(), url.clone());
+    info!("Queueing audio for guild {}: {}", guild_id, url);
+    handler.enqueue_input(source.into()).await;
+
+    let embed = CreateEmbed::new()
+        .title("🎵 Added to Queue")
+        .description(format!("```{}```", truncate(&url, 100)))
+        .color(0x57F287);
+    
+    ctx.send(poise::CreateReply::default().embed(embed)).await?;
 
     Ok(())
 }
@@ -93,6 +116,7 @@ pub async fn skip(ctx: Context<'_>) -> Result<(), Error> {
         if queue.is_empty() {
             ctx.say("📭 Queue is empty").await?;
         } else {
+            info!("Skip command in guild {}: skipping current song", guild_id);
             queue.skip()?;
             ctx.say("⏭️ Skipped current song").await?;
         }
@@ -111,6 +135,7 @@ pub async fn leave(ctx: Context<'_>) -> Result<(), Error> {
         .ok_or("Songbird Voice client not initialized")?;
 
     if manager.get(guild_id).is_some() {
+        info!("Leave command: Removing voice handler for guild {}", guild_id);
         manager.remove(guild_id).await?;
         ctx.say("👋 Left voice channel").await?;
     } else {

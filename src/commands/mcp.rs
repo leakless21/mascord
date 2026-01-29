@@ -2,6 +2,7 @@ use crate::{Context, Error};
 use crate::mcp::config::{McpServerConfig, McpTransport};
 use crate::config::Config;
 use poise::serenity_prelude as serenity;
+use tracing::{info, warn};
 
 /// Manage MCP servers
 #[poise::command(slash_command, subcommands("list", "add", "remove"), check = "is_owner")]
@@ -24,6 +25,7 @@ async fn is_owner(ctx: Context<'_>) -> Result<bool, Error> {
 /// List all configured MCP servers
 #[poise::command(slash_command)]
 pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
+    info!("MCP list command received from {}", ctx.author().name);
     let active_servers = ctx.data().mcp_manager.list_active_servers().await;
     let all_configured = &ctx.data().config.mcp_servers;
     
@@ -77,6 +79,7 @@ pub async fn add(
     current_servers.push(new_server);
     Config::save_mcp_servers(&current_servers)?;
     
+    info!("MCP add command: Successfully added and connected to server '{}'", name);
     ctx.say(format!("✅ Successfully added and connected to MCP server: **{}**", name)).await?;
     Ok(())
 }
@@ -87,6 +90,7 @@ pub async fn remove(
     ctx: Context<'_>,
     #[description = "Name of the server to remove"] name: String,
 ) -> Result<(), Error> {
+    info!("MCP remove command: Attempting to remove server '{}'", name);
     // 1. Disconnect from manager
     let _ = ctx.data().mcp_manager.disconnect(&name).await;
     
@@ -97,8 +101,10 @@ pub async fn remove(
     
     if current_servers.len() < initial_len {
         Config::save_mcp_servers(&current_servers)?;
+        info!("MCP remove command: Successfully removed server '{}' from configuration", name);
         ctx.say(format!("✅ Successfully removed MCP server: **{}**", name)).await?;
     } else {
+        warn!("MCP remove command: Server '{}' not found in configuration", name);
         ctx.say(format!("❌ MCP server **{}** not found in configuration.", name)).await?;
     }
     

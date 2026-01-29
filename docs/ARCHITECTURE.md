@@ -60,6 +60,11 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 - **Interface**: `src/summarize.rs`.
 - **Dependencies**: `src/llm/client.rs`, `src/db/mod.rs`.
 
+### 10. Reply Handler
+- **Responsibility**: Detecting and processing Discord message replies to the bot.
+- **Interface**: `src/reply.rs`.
+- **Dependencies**: `src/commands/chat.rs`, `src/llm/agent.rs`.
+
 ## Configuration Management
 
 Mascord uses a tiered configuration system:
@@ -76,7 +81,8 @@ The `Config` struct in `src/config.rs` is responsible for merging these sources 
 - **Tables**:
   - `messages`: Standard message history (guild_id, channel_id, user_id, content, timestamp).
   - `channel_summaries`: Condensed Working Memory snapshots (channel_id, summary, updated_at).
-  - `settings`: Per-server/channel configurations.
+  - `channel_settings`: Per-channel memory control (guild_id, channel_id, enabled, memory_start_date).
+  - `settings`: Per-server configurations.
 
 ## Interfaces
 
@@ -88,6 +94,8 @@ graph LR
     subgraph Services
         Framework --> ChatCmd[/chat Command]
         ChatCmd --> Agent[Agent Loop]
+        Framework --> ReplyHandler[Reply Handler - src/reply.rs]
+        ReplyHandler --> Agent
         Framework --> Voice[Voice Service - src/voice/]
         Framework --> RAG[RAG Service - src/rag/]
         Framework --> Cache[Caching Layer - src/cache.rs]

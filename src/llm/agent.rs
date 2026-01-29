@@ -30,7 +30,8 @@ impl Agent {
         mut messages: Vec<ChatCompletionRequestMessage>,
         max_iterations: usize,
     ) -> anyhow::Result<String> {
-        for _ in 0..max_iterations {
+        for i in 0..max_iterations {
+            tracing::info!("Agent iteration {}/{}", i + 1, max_iterations);
             // Get all available tools (built-in + MCP)
             let mut all_tools = self.tools.list_tools();
             let mcp_tools = self.mcp_manager.list_all_tools().await;
@@ -67,6 +68,7 @@ impl Agent {
             messages.push(request_assistant_message.into());
 
             if let Some(tool_calls) = &assistant_message.tool_calls {
+                tracing::info!("LLM requested {} tool calls", tool_calls.len());
                 for tool_call in tool_calls {
                     let result = self.execute_tool_call(tool_call, &all_tools).await?;
                     
@@ -79,11 +81,13 @@ impl Agent {
                 // Continue the loop to let the LLM see the results
             } else {
                 // No more tool calls, return final content
+                tracing::info!("Agent task completed after {} iterations", i + 1);
                 return Ok(assistant_message.content.clone().unwrap_or_else(|| "...".to_string()));
             }
         }
 
-        Err(anyhow::anyhow!("Agent exceeded max iterations"))
+        tracing::warn!("Agent exceeded max iterations ({}) - potential runaway loop or recursive tool calls", max_iterations);
+        Err(anyhow::anyhow!("I've reached my reasoning limit for this task ({} steps). To improve results, try breaking your request into smaller, more specific steps.", max_iterations))
     }
 
     async fn execute_tool_call(
@@ -94,9 +98,19 @@ impl Agent {
         let name = &tool_call.function.name;
         let arguments: Value = serde_json::from_str(&tool_call.function.arguments)?;
         
+        tracing::info!("Agent executing tool: {} with arguments: {}", name, arguments);
+        
         let tool = available_tools.iter().find(|t| t.name() == name)
-            .ok_or_else(|| anyhow::anyhow!("Tool not found: {}", name))?;
+            .ok_or_else(|| {
+                tracing::error!("Tool not found: {}", name);
+                anyhow::anyhow!("Tool not found: {}", name)
+            })?;
             
-        tool.execute(arguments).await
+        let result = tool.execute(arguments).await;
+        match &result {
+            Ok(v) => tracing::debug!("Tool {} returned: {}", name, v),
+            Err(e) => tracing::error!("Tool {} failed: {}", name, e),
+        }
+        result
     }
 }

@@ -1,6 +1,7 @@
 use crate::{Context, Error};
 use crate::rag::SearchFilter;
 use chrono::{Utc, Duration};
+use tracing::info;
 
 /// Search for messages in history
 #[poise::command(slash_command)]
@@ -34,12 +35,15 @@ pub async fn search(
     }
 
     // Perform search (Implementation in Database)
+    info!("Search command received: '{}' for channel {}", query, filter.channels.first().map(|s| s.as_str()).unwrap_or("all"));
     let results = db.search_messages(&query, embedding, filter).await?;
 
     if results.is_empty() {
+        info!("No search results found for query: '{}'", query);
         ctx.say("No relevant messages found.").await?;
         return Ok(());
     }
+    info!("Found {} search results for query: '{}'", results.len(), query);
 
     let mut response = String::from("**Search Results:**\n");
     for (i, msg) in results.iter().enumerate() {
