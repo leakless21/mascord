@@ -8,3 +8,4 @@
 *.log
 .env
 mcp_servers.toml
+.vscode-format-workflow.md
