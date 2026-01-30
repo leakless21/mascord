@@ -115,6 +115,22 @@ This document tracks identified gaps, edge cases, and potential issues requiring
 **Impact**: Poor UX, difficult to debug "silent" startup failures.
 **Resolution**: Implemented a pre-check using `reqwest` in `main.rs` that explicitly detects 429s and aborts startup with a clear message if a rate limit is active.
 
+### GAP-018: Cloudflare IP Ban from Excessive Restarts 🔴
+**Status**: Open
+**Description**: Frequent bot restarts (especially during development) trigger Cloudflare's Invalid Request Limit (>10,000 invalid requests in 10 minutes = IP ban for 1+ hour). Each restart makes multiple API calls (application info, command registration, gateway connection).
+**Impact**: Bot completely unable to start for extended periods (1097+ seconds). Development workflow blocked.
+**Root Causes**:
+- `REGISTER_COMMANDS=true` causes command registration on EVERY startup (should only happen when commands change)
+- No exponential backoff on failed API calls
+- No check for existing command registration state
+- Rapid restart cycles during development accumulate failed requests
+**Resolution**: 
+1. Set `REGISTER_COMMANDS=false` by default in `.env.example`
+2. Add command registration state tracking (hash of command signatures)
+3. Implement exponential backoff for API failures
+4. Add startup delay option for development
+5. Document best practices: use guild commands during dev, only register globally when deploying
+
 ---
 
 ## 7. Data & Storage

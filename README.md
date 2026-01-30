@@ -56,21 +56,74 @@ Fill in the following essential variables:
 
 ### 4. Running the Bot
 
-Once configured, you can start the bot using Cargo:
+⚠️ **CRITICAL: Avoid Rate Limits!**
+
+Before starting your bot, ensure you've configured command registration properly to avoid Cloudflare IP bans:
+
+```bash
+# In .env - Set to false by default!
+REGISTER_COMMANDS=false
+DEV_GUILD_ID=your_test_server_id
+```
+
+**Why?** Setting `REGISTER_COMMANDS=true` causes the bot to register commands on **every startup**. During development, frequent restarts can trigger Discord's Cloudflare protection, resulting in **1+ hour IP bans**.
+
+**When to enable command registration:**
+- ✅ First time running the bot
+- ✅ When you've modified command signatures (added/removed commands or parameters)
+- ❌ Normal development restarts
+
+**Best practice workflow:**
+1. Set `REGISTER_COMMANDS=true` and `DEV_GUILD_ID` to your test server
+2. Start bot once to register commands
+3. Set `REGISTER_COMMANDS=false`
+4. Continue development normally
+
+📖 **For detailed information**, see [docs/RATE_LIMIT_GUIDE.md](docs/RATE_LIMIT_GUIDE.md)
+
+Once configured, start the bot:
 
 ```bash
 cargo run
 ```
 
-### 5. MCP Servers (`mcp_servers.toml`)
+### 5. MCP Servers Configuration
 
-To extend the bot's capabilities, add MCP server configurations to `mcp_servers.toml`:
+**MCP (Model Context Protocol)** servers extend the bot's capabilities with external tools and data sources.
+
+#### Setup:
+1. Copy the example configuration:
+   ```bash
+   cp mcp_servers.toml.example mcp_servers.toml
+   ```
+
+2. Add your API keys to `.env`:
+   ```bash
+   # MCP Server Configuration
+   BRAVE_API_KEY=your_brave_api_key_here
+   ```
+
+3. The MCP servers will automatically read API keys from your environment variables.
+
+> [!IMPORTANT]
+> **Security**: Never commit `mcp_servers.toml` with API keys! This file is gitignored. Always use environment variables for sensitive credentials.
+
+#### Example Configuration:
 ```toml
 [[servers]]
-name = "web-search"
+name = "brave-search"
+transport = "http"
 command = "npx"
-args = ["-y", "@modelcontextprotocol/server-fetch"]
+args = ["-y", "@modelcontextprotocol/server-brave-search"]
+# BRAVE_API_KEY is read from environment
+
+[[servers]]
+name = "fetch"
+transport = "stdio"
+command = "uvx"
+args = ["mcp-server-fetch"]
 ```
+
 
 ---
 
