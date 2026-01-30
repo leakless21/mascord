@@ -97,33 +97,22 @@ cargo run
    cp mcp_servers.toml.example mcp_servers.toml
    ```
 
-2. Add your API keys to `.env`:
-   ```bash
-   # MCP Server Configuration
-   BRAVE_API_KEY=your_brave_api_key_here
+2. Edit `mcp_servers.toml` and add your actual API keys:
+   ```toml
+   [[servers]]
+   name = "brave-search"
+   transport = "http"
+   command = "npx"
+   args = ["-y", "@modelcontextprotocol/server-brave-search"]
+   env = { BRAVE_API_KEY = "your_actual_api_key_here" }
    ```
 
-3. The MCP servers will automatically read API keys from your environment variables.
-
 > [!IMPORTANT]
-> **Security**: Never commit `mcp_servers.toml` with API keys! This file is gitignored. Always use environment variables for sensitive credentials.
+> **Security**: The `mcp_servers.toml` file is gitignored and will never be committed. You can safely put your API keys directly in this file. The `mcp_servers.toml.example` template is committed to the repo for reference.
 
-#### Example Configuration:
-```toml
-[[servers]]
-name = "brave-search"
-transport = "http"
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-brave-search"]
-# BRAVE_API_KEY is read from environment
-
-[[servers]]
-name = "fetch"
-transport = "stdio"
-command = "uvx"
-args = ["mcp-server-fetch"]
-```
-
+#### Available MCP Servers:
+- **brave-search**: Web search powered by Brave Search API
+- **fetch**: HTTP client for fetching web content
 
 ---
 

@@ -1,16 +1,17 @@
 # Mascord MCP Servers Configuration
 # This file defines external Model Context Protocol (MCP) servers to extend the bot's powers.
 # 
-# IMPORTANT: Copy this file to mcp_servers.toml and configure with your actual API keys
-# The mcp_servers.toml file is gitignored to prevent accidental key exposure
+# SETUP INSTRUCTIONS:
+# 1. Copy this file: cp mcp_servers.toml.example mcp_servers.toml
+# 2. Add your actual API keys to mcp_servers.toml
+# 3. The mcp_servers.toml file is gitignored - it will never be committed
 
 [[servers]]
 name = "brave-search"
 transport = "http"
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-brave-search"]
-# BRAVE_API_KEY should be set in your environment or .env file
-# The MCP server will read it from the environment automatically
+env = { BRAVE_API_KEY = "your_brave_api_key_here" }
 
 [[servers]]
 name = "fetch"
