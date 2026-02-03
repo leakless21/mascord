@@ -23,16 +23,55 @@
 ### 1. Prerequisites
 
 Mascord requires the following external tools for full functionality:
-- **Rust Toolchain**: [Install Rust](https://rustup.rs/) (Required to build and run).
-- **yt-dlp**: Required for YouTube metadata and audio. [Install yt-dlp](https://github.com/yt-dlp/yt-dlp#installation)
-- **FFmpeg**: Required for audio processing. [Install FFmpeg](https://ffmpeg.org/download.html)
-- **LLM Provider**: Any OpenAI-compatible API (e.g., `llama.cpp` server, LocalAI, vLLM, or OpenAI).
+- **Rust Toolchain**: Required to build and run
+- **yt-dlp**: Required for YouTube metadata and audio
+- **FFmpeg**: Required for audio processing
+- **CMake**: Required for building native libraries
+- **LLM Provider**: Any OpenAI-compatible API (e.g., `llama.cpp` server, LocalAI, vLLM, or OpenAI)
+- **Node.js** (optional): Required only if using MCP servers via `npx`
+
+#### macOS Installation (Recommended)
+
+On macOS, use **Homebrew** to install all dependencies automatically:
+
+```bash
+# Install all dependencies at once
+brew install rustup ffmpeg yt-dlp node cmake opus pkg-config
+
+# Initialize Rust
+rustup default stable
+```
+
+Verify installation:
+```bash
+rustc --version
+cargo --version
+ffmpeg -version | head -1
+yt-dlp --version
+node --version
+```
+
+Or use the provided `Brewfile` for reproducible installs:
+```bash
+brew bundle  # Installs all dependencies from Brewfile
+```
+
+#### Linux Installation
+
+Use your system's package manager:
+```bash
+# Ubuntu/Debian
+sudo apt-get install rustup ffmpeg yt-dlp nodejs cmake libopus-dev pkg-config
+
+# macOS (alternative if Homebrew not available)
+sudo port install rust ffmpeg yt-dlp nodejs cmake libopus
+```
 
 #### Platform Notes
 
-- **Target platforms**: macOS and Linux. macOS support is intended but not yet CI-validated.
-- **macOS setup**: You can install `yt-dlp` and `ffmpeg` with Homebrew: `brew install yt-dlp ffmpeg`.
-- **MCP servers** (optional): If you use `npx`-based MCP servers, install Node.js so `npx` is available.
+- **macOS**: Fully supported on Apple Silicon (ARM64) and Intel. All dependencies available via Homebrew.
+- **Linux**: Supported on most distributions. See SETUP_MACOS.md for macOS-specific notes.
+- **MCP servers**: If you use `npx`-based MCP servers, ensure Node.js is installed.
 
 ### 2. Configuration (`.env`)
 
@@ -129,11 +168,25 @@ DEV_GUILD_ID=YOUR_DEV_GUILD_ID_HERE            # Optional: faster dev registrati
 2. Create the SQLite database file at the path specified in `DATABASE_URL`.
 3. Initialize all necessary tables and indexes.
 
-### 4. Running the Bot
+The `data/` directory is gitignored and will never be committed.
+
+### 4. Build the Project
+
+Build the bot once to create the optimized binary:
+
+```bash
+cd /path/to/mascord
+cargo build --release    # Optimized binary (recommended)
+cargo build              # Debug binary (faster compilation)
+```
+
+The release binary is located at: `target/release/mascord`
+
+### 5. Running the Bot
 
 ⚠️ **CRITICAL: Avoid Rate Limits!**
 
-Before starting your bot, ensure you've configured command registration properly to avoid Cloudflare IP bans:
+Before starting your bot, ensure command registration is configured correctly to avoid Cloudflare IP bans:
 
 ```bash
 # In .env - Set to false by default!
@@ -141,7 +194,7 @@ REGISTER_COMMANDS=false
 DEV_GUILD_ID=your_test_server_id
 ```
 
-**Why?** Setting `REGISTER_COMMANDS=true` causes the bot to register commands on **every startup**. During development, frequent restarts can trigger Discord's Cloudflare protection, resulting in **1+ hour IP bans**.
+**Why?** Setting `REGISTER_COMMANDS=true` causes the bot to register commands on **every startup**. Frequent restarts can trigger Discord's Cloudflare protection (**1+ hour IP ban**).
 
 **When to enable command registration:**
 - ✅ First time running the bot
@@ -154,15 +207,43 @@ DEV_GUILD_ID=your_test_server_id
 3. Set `REGISTER_COMMANDS=false`
 4. Continue development normally
 
-📖 **For detailed information**, see [docs/RATE_LIMIT_GUIDE.md](docs/RATE_LIMIT_GUIDE.md)
+#### Quick Start (Recommended)
 
-Once configured, start the bot:
+**Use the provided `bot.sh` script** for an easy setup-and-run experience:
 
 ```bash
-cargo run
+# Run the bot (release mode - optimized and recommended)
+./bot.sh
+
+# Or debug mode (verbose logging)
+./bot.sh debug
 ```
 
-### 5. MCP Servers Configuration
+The script automatically:
+- Creates the `data/` directory
+- Verifies your `.env` configuration
+- Builds the binary if needed
+- Starts the bot
+
+#### Manual Startup
+
+If you prefer to run without the script:
+
+```bash
+# Ensure data directory exists
+mkdir -p data/
+
+# Run with cargo
+cargo run --release     # Optimized (recommended)
+cargo run               # Debug mode
+
+# Or run the compiled binary directly
+./target/release/mascord
+```
+
+📖 **For detailed information**, see [SETUP_COMPLETE.md](SETUP_COMPLETE.md) and [DATABASE_FIX.md](DATABASE_FIX.md)
+
+### 6. MCP Servers Configuration
 
 **MCP (Model Context Protocol)** servers extend the bot's capabilities with external tools and data sources.
 
@@ -191,7 +272,46 @@ cargo run
 
 ---
 
-## 🛠️ Usage Guide
+## � Monitoring Your Bot
+
+### Check if Bot is Running
+
+```bash
+# See running Mascord process
+ps aux | grep mascord
+
+# Check database message count
+sqlite3 data/mascord.db "SELECT COUNT(*) as messages FROM messages;"
+
+# View real-time logs (if running in background)
+tail -f /tmp/mascord.log
+```
+
+### Stop the Bot
+
+```bash
+# Graceful shutdown (saves state)
+pkill -f "target/release/mascord"
+
+# Or in Discord, use (owner-only):
+/admin shutdown
+```
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Bot won't start | `mkdir -p data/` and verify `.env` has `DISCORD_TOKEN` and `APPLICATION_ID` |
+| "Failed to open database" | `mkdir -p data/` - SQLite needs parent directory to exist |
+| Database errors | `rm data/mascord.db` (will be recreated on startup) |
+| LLM connection fails | Check `LLAMA_URL` is accessible: `curl $LLAMA_URL/models` |
+| Bot doesn't respond to commands | Verify bot has Discord permissions (Send Messages, Read Messages) |
+| High memory usage | Reduce `CONTEXT_MESSAGE_LIMIT` or increase `LONG_TERM_RETENTION_DAYS` |
+| Commands not appearing | Set `REGISTER_COMMANDS=true`, restart once, then set back to false |
+
+---
+
+## 🎮 Usage Guide
 
 ### 🧬 The Memory System
 Mascord doesn't just "see" the last message. It manages context in three layers:
@@ -230,11 +350,26 @@ Use `/agent` for requests that require multiple actions.
 
 ## 📖 Documentation
 
+Start with the most relevant guide for your needs:
+
+- **[Quick Start Guide](docs/QUICK_START.md)** - Get running in 5 minutes (⭐ start here!)
+- **[Installation Guide](docs/INSTALLATION.md)** - Full setup with troubleshooting
+- **[Command Reference](docs/COMMANDS.md)** - All available commands with examples
+- **[Documentation Index](docs/DOCUMENTATION_INDEX.md)** - Complete documentation map
+
+### Technical Documentation
+
 For deeper insights into the project, explore the `docs/` directory:
 
-- [Requirements](docs/REQUIREMENTS.md): Detailed functional and non-functional goals.
 - [Architecture](docs/ARCHITECTURE.md): System design, component overview, and data flow.
+- [Requirements](docs/REQUIREMENTS.md): Detailed functional and non-functional goals.
 - [Component Docs](docs/COMPONENT_BOT_DOCS.md): Deep dives into specific modules (Bot, LLM, RAG, Voice, Tools).
+
+### Setup & Troubleshooting
+
+- [SETUP_COMPLETE.md](SETUP_COMPLETE.md): Post-setup verification and next steps
+- [DATABASE_FIX.md](DATABASE_FIX.md): Database initialization and troubleshooting
+- [QUICK_REFERENCE.md](QUICK_REFERENCE.md): Command cheat sheet
 
 ---
 
