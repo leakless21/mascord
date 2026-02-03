@@ -1,15 +1,19 @@
 # Component: Core Bot Documentation
 
 ## Area of Responsibility
+
 General bot setup, command registration, and event lifecycle management.
 
 ## Key Classes / Modules
+
 - `src/main.rs`: Entry point and Poise framework initialization.
 - `src/config.rs`: Configuration handling (env vars, constants).
 - `src/commands/mod.rs`: Command registration and grouping.
 
 ## Configuration & Environment
+
 The bot is configured via environment variables (see `.env.example`). If a variable is missing, the bot uses sensible internal defaults defined in `src/config.rs`.
+
 - `DISCORD_TOKEN`: **Required**. Bot token from Discord Developer Portal.
 - `APPLICATION_ID`: **Required**. Discord application ID.
 - `OWNER_ID`: (Optional) ID of the bot owner for admin-restricted commands.
@@ -19,11 +23,14 @@ The bot is configured via environment variables (see `.env.example`). If a varia
 - `YOUTUBE_COOKIES`: (Optional) Path to cookies file for `yt-dlp`.
 
 ## Interfaces
+
 - **External**: Discord Gateway WebSocket.
 - **Internal**: Provides `Data` struct to all commands via Poise context.
 
 ## State Management
+
 Uses Poise's shared `Data` struct (thread-safe, wrapped in `Arc` by the framework), containing:
+
 - `Config`: Loaded environment settings.
 - `LlmClient`: Connection to LLM provider.
 - `Database`: SQLite message and embedding storage.
@@ -32,8 +39,10 @@ Uses Poise's shared `Data` struct (thread-safe, wrapped in `Arc` by the framewor
 - `McpClientManager`: Manager for MCP server connections.
 
 ## Error Handling
+
 - Centralized Poise `on_error` handler logs errors and sends a user-facing response for command failures.
 - Event handling logs persistence failures (no silent DB errors).
 
 ## Security
+
 Commands restricted to the bot owner use the `owner_id` check from `src/config.rs`. Sensitive configuration fields (tokens, API keys) are redacted in `Debug` logs via a custom implementation in `src/config.rs`.
