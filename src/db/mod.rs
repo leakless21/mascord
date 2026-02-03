@@ -1,7 +1,8 @@
-use rusqlite::{Connection, Result};
+use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use crate::config::Config;
 use tracing::{info, debug};
+use anyhow::Context as AnyhowContext;
 
 #[derive(Clone)]
 pub struct Database {
@@ -9,12 +10,17 @@ pub struct Database {
 }
 
 impl Database {
-    pub fn new(config: &Config) -> Result<Self> {
-        let conn = Connection::open(&config.database_url)?;
+    pub fn new(config: &Config) -> anyhow::Result<Self> {
+        let conn = Connection::open(&config.database_url)
+            .with_context(|| format!("Failed to open database at '{}'", config.database_url))?;
         
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
+    }
+
+    fn lock_conn(&self) -> anyhow::Result<std::sync::MutexGuard<'_, Connection>> {
+        self.conn.lock().map_err(|_| anyhow::anyhow!("Database connection lock poisoned"))
     }
 
     pub fn execute_init(&self) -> anyhow::Result<()> {
@@ -54,8 +60,8 @@ impl Database {
             );
             CREATE INDEX IF NOT EXISTS idx_channel_guild ON channel_settings (guild_id);
         ";
-        let conn = self.conn.lock().unwrap();
-        conn.execute_batch(sql)?;
+        let conn = self.lock_conn()?;
+        conn.execute_batch(sql).context("Failed to initialize database schema")?;
         debug!("Database: Schema initialized successfully");
         Ok(())
     }
@@ -70,17 +76,17 @@ impl Database {
         timestamp: i64,
     ) -> anyhow::Result<()> {
         debug!("Database: Saving message {} from user {} in channel {}", discord_id, user_id, channel_id);
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT OR IGNORE INTO messages (discord_id, guild_id, channel_id, user_id, content, timestamp) 
              VALUES (?1, ?2, ?3, ?4, ?5, datetime(?6, 'unixepoch'))",
             (discord_id, guild_id, channel_id, user_id, content, timestamp),
-        )?;
+        ).context("Failed to save message")?;
         Ok(())
     }
 
     pub fn set_guild_settings(&self, guild_id: u64, limit: Option<usize>, retention: Option<u64>) -> anyhow::Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         
         // Check if exists first
         let exists = conn.prepare("SELECT 1 FROM settings WHERE guild_id = ?1")?
@@ -103,7 +109,7 @@ impl Database {
     }
     
     pub fn get_guild_settings(&self, guild_id: u64) -> anyhow::Result<(Option<usize>, Option<u64>)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare("SELECT context_limit, context_retention FROM settings WHERE guild_id = ?1")?;
         
         let mut rows = stmt.query([guild_id.to_string()])?;
@@ -118,7 +124,7 @@ impl Database {
     }
 
     pub fn save_summary(&self, channel_id: &str, summary: &str) -> anyhow::Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO channel_summaries (channel_id, summary, updated_at) 
              VALUES (?1, ?2, CURRENT_TIMESTAMP)
@@ -129,7 +135,7 @@ impl Database {
     }
 
     pub fn get_latest_summary(&self, channel_id: &str) -> anyhow::Result<Option<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare("SELECT summary FROM channel_summaries WHERE channel_id = ?1")?;
         let mut rows = stmt.query([channel_id])?;
         
@@ -143,7 +149,7 @@ impl Database {
     // --- Channel Settings ---
 
     pub fn set_channel_enabled(&self, guild_id: &str, channel_id: &str, enabled: bool) -> anyhow::Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO channel_settings (guild_id, channel_id, enabled, updated_at) 
              VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)
@@ -154,7 +160,7 @@ impl Database {
     }
 
     pub fn set_channel_memory_scope(&self, guild_id: &str, channel_id: &str, start_date: Option<String>) -> anyhow::Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO channel_settings (guild_id, channel_id, memory_start_date, updated_at) 
              VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)
@@ -165,7 +171,7 @@ impl Database {
     }
 
     pub fn get_channel_settings(&self, channel_id: &str) -> anyhow::Result<Option<(bool, Option<String>)>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare("SELECT enabled, memory_start_date FROM channel_settings WHERE channel_id = ?1")?;
         let mut rows = stmt.query([channel_id])?;
         
@@ -186,7 +192,7 @@ impl Database {
     }
 
     pub fn list_channel_settings(&self, guild_id: &str) -> anyhow::Result<Vec<(String, bool, Option<String>)>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare("SELECT channel_id, enabled, memory_start_date FROM channel_settings WHERE guild_id = ?1")?;
         let rows = stmt.query_map([guild_id], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
@@ -200,7 +206,7 @@ impl Database {
     }
 
     pub fn purge_messages(&self, channel_id: &str, before_date: Option<String>) -> anyhow::Result<usize> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let count = if let Some(date) = before_date {
             conn.execute("DELETE FROM messages WHERE channel_id = ?1 AND timestamp < ?", (channel_id, date))?
         } else {
@@ -212,7 +218,7 @@ impl Database {
     /// Removes messages older than `retention_hours` from the database.
     /// Returns the number of messages deleted.
     pub fn cleanup_old_messages(&self, retention_hours: u64) -> anyhow::Result<usize> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let count = conn.execute(
             "DELETE FROM messages WHERE timestamp < datetime('now', ?1)",
             (format!("-{} hours", retention_hours),),
@@ -226,7 +232,7 @@ impl Database {
         _embedding: Vec<f32>,
         filter: crate::rag::SearchFilter
     ) -> anyhow::Result<Vec<crate::rag::MessageResult>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         
         // Note: For actual sqlite-vec usage, we'd use vec_distance_l2 or similar.
         // Since we are implementing for footprint, we assume the extension is loaded.

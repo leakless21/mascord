@@ -8,6 +8,7 @@
 - **Universal Embed Responses**: Use embeds for all bot responses to bypass Discord's 2000-character plain text limit.
 - **R-007**: Fail fast on excessive Discord rate limits (e.g., > 60s) during startup to avoid unresponsive hanging.
 - **R-008**: Provide clear, actionable error messages when external services (Discord, LLM, MCP) are unavailable or rate-limited.
+- **R-009**: Surface command errors to users with a consistent, friendly response while logging full details.
 - Event handling for message tracking (for RAG).
 - Multi-channel support.
 
@@ -37,6 +38,7 @@
 - Voice channel connection/disconnection.
 - Play audio from YouTube URLs using `yt-dlp`.
 - Support for `youtube-cookies` to bypass bot/age detection.
+- Warn and continue without cookies if `YOUTUBE_COOKIES` points to a missing file.
 - Basic controls: Pause, Resume, Skip, Stop, Queue list.
 - Songbird-based native implementation for low footprint.
 

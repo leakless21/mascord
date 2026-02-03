@@ -65,6 +65,12 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 - **Interface**: `src/reply.rs`.
 - **Dependencies**: `src/commands/chat.rs`, `src/llm/agent.rs`.
 
+## Error Handling & Surfacing
+
+- **Command errors**: Centralized Poise `on_error` handler logs full details and sends a user-facing error message.
+- **Background tasks**: Errors are logged with context (no silent failures).
+- **State locks**: Cache recovers from lock poisoning; database operations surface lock errors and add context.
+
 ## Configuration Management
 
 Mascord uses a tiered configuration system:

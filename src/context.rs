@@ -15,7 +15,7 @@ use serenity::model::id::ChannelId;
 use crate::cache::MessageCache;
 use crate::config::Config;
 use crate::db::Database;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Formats cached messages into LLM-compatible context messages
 pub struct ConversationContext;
@@ -39,8 +39,13 @@ impl ConversationContext {
     ) -> Vec<ChatCompletionRequestMessage> {
         // Resolve settings: Check DB -> Fallback to Config
         let (limit, retention) = if let Some(gid) = guild_id {
-            db.get_guild_settings(gid)
-                .unwrap_or((None, None))
+            match db.get_guild_settings(gid) {
+                Ok(settings) => settings,
+                Err(e) => {
+                    warn!("Context: Failed to load guild settings for {}: {}", gid, e);
+                    (None, None)
+                }
+            }
         } else {
             (None, None)
         };
@@ -51,30 +56,40 @@ impl ConversationContext {
         let mut cutoff_unix = (Utc::now() - Duration::hours(retention as i64)).timestamp();
         
         // 0. Check Channel Specific Settings (Scope)
-        if let Ok(Some((_enabled, Some(scope_date)))) = db.get_channel_settings(&channel_id.to_string()) {
-            // If we have a memory start date, use it if it's MORE RECENT than the retention cutoff
-            let scope_date_clone = scope_date.clone();
-            if let Ok(scope_ts) = chrono::DateTime::parse_from_str(&format!("{} +0000", scope_date), "%Y-%m-%d %H:%M:%S %z") {
-                let scope_unix = scope_ts.timestamp();
-                if scope_unix > cutoff_unix {
-                    debug!("Context: Respecting memory scope for channel {}: messages after {}", channel_id, scope_date_clone);
-                    cutoff_unix = scope_unix;
+        match db.get_channel_settings(&channel_id.to_string()) {
+            Ok(Some((_enabled, Some(scope_date)))) => {
+                // If we have a memory start date, use it if it's MORE RECENT than the retention cutoff
+                let scope_date_clone = scope_date.clone();
+                if let Ok(scope_ts) = chrono::DateTime::parse_from_str(&format!("{} +0000", scope_date), "%Y-%m-%d %H:%M:%S %z") {
+                    let scope_unix = scope_ts.timestamp();
+                    if scope_unix > cutoff_unix {
+                        debug!("Context: Respecting memory scope for channel {}: messages after {}", channel_id, scope_date_clone);
+                        cutoff_unix = scope_unix;
+                    }
+                } else {
+                    warn!("Context: Invalid memory scope date '{}' for channel {}", scope_date_clone, channel_id);
                 }
             }
+            Ok(_) => {}
+            Err(e) => warn!("Context: Failed to load channel settings for {}: {}", channel_id, e),
         }
 
         let mut messages = Vec::new();
 
         // 1. Inject Working Memory (Latest Summary) if available
-        if let Ok(Some(summary)) = db.get_latest_summary(&channel_id.to_string()) {
-            debug!("Context: Injecting working memory (summary) for channel {}", channel_id);
-            use async_openai::types::ChatCompletionRequestSystemMessageArgs;
-            if let Ok(msg) = ChatCompletionRequestSystemMessageArgs::default()
-                .content(format!("Earlier conversation summary for this channel:\n{}", summary))
-                .build()
-            {
-                messages.push(msg.into());
+        match db.get_latest_summary(&channel_id.to_string()) {
+            Ok(Some(summary)) => {
+                debug!("Context: Injecting working memory (summary) for channel {}", channel_id);
+                use async_openai::types::ChatCompletionRequestSystemMessageArgs;
+                if let Ok(msg) = ChatCompletionRequestSystemMessageArgs::default()
+                    .content(format!("Earlier conversation summary for this channel:\n{}", summary))
+                    .build()
+                {
+                    messages.push(msg.into());
+                }
             }
+            Ok(None) => {}
+            Err(e) => warn!("Context: Failed to load summary for channel {}: {}", channel_id, e),
         }
 
         // 2. Fetch Short-Term context (verbatim messages)

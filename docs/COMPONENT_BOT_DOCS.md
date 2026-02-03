@@ -31,5 +31,9 @@ Uses Poise's shared `Data` struct (thread-safe, wrapped in `Arc` by the framewor
 - `ToolRegistry`: Registry of callable tools.
 - `McpClientManager`: Manager for MCP server connections.
 
+## Error Handling
+- Centralized Poise `on_error` handler logs errors and sends a user-facing response for command failures.
+- Event handling logs persistence failures (no silent DB errors).
+
 ## Security
 Commands restricted to the bot owner use the `owner_id` check from `src/config.rs`. Sensitive configuration fields (tokens, API keys) are redacted in `Debug` logs via a custom implementation in `src/config.rs`.

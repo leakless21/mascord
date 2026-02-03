@@ -35,6 +35,12 @@ This document tracks identified gaps, edge cases, and potential issues requiring
 **Impact**: May queue entire playlist unexpectedly or fail.
 **Resolution**: Add `--no-playlist` flag or document intended behavior.
 
+### GAP-019: Missing Cookie File Validation 🟡
+**Status**: Resolved ✅
+**Description**: `YOUTUBE_COOKIES` could point to a missing file with no warning.
+**Impact**: `yt-dlp` may fail (e.g., 403) without an obvious cause.
+**Resolution**: Validate cookie file path and log a warning, then continue without cookies.
+
 ---
 
 ## 2. Voice Channel Management
@@ -105,6 +111,12 @@ This document tracks identified gaps, edge cases, and potential issues requiring
 **Impact**: External tools become unavailable until bot restart.
 **Resolution**: Add health check and automatic reconnection with backoff.
 
+### GAP-020: Command Errors Not Surfaced 🟡
+**Status**: Resolved ✅
+**Description**: Command errors were logged inconsistently and often not shown to users.
+**Impact**: Users saw silent failures or no feedback when commands failed.
+**Resolution**: Added a centralized Poise `on_error` handler that logs details and sends a user-facing error message.
+
 ---
 
 ## 6. Discord API & Rate Limiting
@@ -172,6 +184,8 @@ This document tracks identified gaps, edge cases, and potential issues requiring
 - [x] **GAP-013**: SQL Injection in Search Query (Phase 1)
 - [x] **GAP-015**: API Key Redaction in Debug (Phase 4/1)
 - [x] **GAP-017**: Bot Hangs on Startup Rate Limit (Phase 5)
+- [x] **GAP-019**: Missing Cookie File Validation (Phase 6)
+- [x] **GAP-020**: Command Errors Not Surfaced (Phase 6)
 
 
 ---

@@ -7,7 +7,7 @@ use async_openai::types::{
     ChatCompletionRequestMessage
 };
 use poise::serenity_prelude::{CreateEmbed, CreateEmbedFooter};
-use tracing::info;
+use tracing::{info, error};
 
 /// Chat with the all-in-one assistant
 #[poise::command(slash_command)]
@@ -51,7 +51,10 @@ pub async fn chat(
     let agent = crate::llm::agent::Agent::new(ctx.data());
     let response = match agent.run(messages, 10).await {
         Ok(r) => r,
-        Err(e) => format!("❌ Assistant Error: {}", e),
+        Err(e) => {
+            error!("Assistant error in /chat for channel {}: {}", ctx.channel_id(), e);
+            format!("❌ Assistant Error: {}", e)
+        }
     };
 
     // Handle long responses with embeds

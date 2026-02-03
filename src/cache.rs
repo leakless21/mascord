@@ -4,6 +4,7 @@ use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 use serenity::model::channel::Message;
 use serenity::model::id::ChannelId;
+use tracing::warn;
 
 /// Thread-safe message cache with LRU eviction and per-channel indexing
 pub struct MessageCache {
@@ -24,19 +25,39 @@ impl MessageCache {
         }
     }
 
+    fn lock_cache(&self) -> std::sync::MutexGuard<'_, LruCache<String, Message>> {
+        match self.cache.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                warn!("Message cache lock poisoned; recovering");
+                poisoned.into_inner()
+            }
+        }
+    }
+
+    fn lock_index(&self) -> std::sync::MutexGuard<'_, HashMap<ChannelId, VecDeque<String>>> {
+        match self.channel_index.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                warn!("Message cache index lock poisoned; recovering");
+                poisoned.into_inner()
+            }
+        }
+    }
+
     pub fn insert(&self, message: Message) {
         let message_id = message.id.to_string();
         let channel_id = message.channel_id;
         
         // Insert into main cache
         {
-            let mut cache = self.cache.lock().unwrap();
+            let mut cache = self.lock_cache();
             cache.put(message_id.clone(), message);
         }
         
         // Update channel index
         {
-            let mut index = self.channel_index.lock().unwrap();
+            let mut index = self.lock_index();
             let channel_msgs = index.entry(channel_id).or_insert_with(VecDeque::new);
             channel_msgs.push_back(message_id);
             
@@ -48,14 +69,14 @@ impl MessageCache {
     }
 
     pub fn get(&self, message_id: &str) -> Option<Message> {
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.lock_cache();
         cache.get(message_id).cloned()
     }
     
     /// Retrieve recent messages from a specific channel, ordered oldest to newest
     pub fn get_channel_history(&self, channel_id: ChannelId, limit: usize) -> Vec<Message> {
-        let index = self.channel_index.lock().unwrap();
-        let cache = self.cache.lock().unwrap();
+        let index = self.lock_index();
+        let cache = self.lock_cache();
         
         let Some(channel_msgs) = index.get(&channel_id) else {
             return Vec::new();

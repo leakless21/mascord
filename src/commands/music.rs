@@ -4,7 +4,7 @@ use poise::serenity_prelude::{
     CreateEmbed, CreateButton, ButtonStyle, CreateActionRow,
     CreateInteractionResponse, CreateInteractionResponseMessage
 };
-use tracing::info;
+use tracing::{info, warn};
 // use poise::serenity_prelude as serenity;
 
 /// Join a voice channel
@@ -85,7 +85,11 @@ pub async fn play(
     let mut handler = handler_lock.lock().await;
 
     if let Some(cookies) = &ctx.data().config.youtube_cookies {
-        std::env::set_var("YTDL_ARGS", format!("--cookies {}", cookies));
+        if std::path::Path::new(cookies).exists() {
+            std::env::set_var("YTDL_ARGS", format!("--cookies {}", cookies));
+        } else {
+            warn!("YOUTUBE_COOKIES set but file not found at '{}'; skipping cookies", cookies);
+        }
     }
 
     let source = YoutubeDl::new(ctx.data().http_client.clone(), url.clone());

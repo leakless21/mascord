@@ -74,7 +74,10 @@ pub async fn add(
     // For now, let's update the TOML file. Next restart it will be fully integrated.
     // However, to make it work NOW, we already connected it to the manager.
     
-    let mut current_servers = Config::load_mcp_servers().unwrap_or_default();
+    let mut current_servers = Config::load_mcp_servers().unwrap_or_else(|e| {
+        warn!("MCP add command: Failed to load existing config; starting fresh: {}", e);
+        Vec::new()
+    });
     current_servers.retain(|s| s.name != name);
     current_servers.push(new_server);
     Config::save_mcp_servers(&current_servers)?;
@@ -95,7 +98,10 @@ pub async fn remove(
     let _ = ctx.data().mcp_manager.disconnect(&name).await;
     
     // 2. Update persistence
-    let mut current_servers = Config::load_mcp_servers().unwrap_or_default();
+    let mut current_servers = Config::load_mcp_servers().unwrap_or_else(|e| {
+        warn!("MCP remove command: Failed to load existing config; starting fresh: {}", e);
+        Vec::new()
+    });
     let initial_len = current_servers.len();
     current_servers.retain(|s| s.name != name);
     

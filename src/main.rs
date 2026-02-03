@@ -6,6 +6,7 @@ use tracing_subscriber::{prelude::*, EnvFilter, fmt};
 use songbird::serenity::SerenityInit;
 use serenity::all::Http;
 use std::collections::HashSet;
+use anyhow::Context as AnyhowContext;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -112,24 +113,62 @@ async fn main() -> anyhow::Result<()> {
                                 }
 
                                 // Check if channel tracking is enabled
-                                if let Ok(true) = data.db.is_channel_tracking_enabled(&new_message.channel_id.to_string()) {
-                                    // Populate internal cache
-                                    data.cache.insert(new_message.clone());
+                                match data.db.is_channel_tracking_enabled(&new_message.channel_id.to_string()) {
+                                    Ok(true) => {
+                                        // Populate internal cache
+                                        data.cache.insert(new_message.clone());
 
-                                    let _ = data.db.save_message(
-                                        &new_message.id.to_string(),
-                                        &new_message.guild_id.map(|id| id.to_string()).unwrap_or_default(),
-                                        &new_message.channel_id.to_string(),
-                                        &new_message.author.id.to_string(),
-                                        &new_message.content,
-                                        new_message.timestamp.unix_timestamp(),
-                                    );
+                                        if let Err(e) = data.db.save_message(
+                                            &new_message.id.to_string(),
+                                            &new_message.guild_id.map(|id| id.to_string()).unwrap_or_default(),
+                                            &new_message.channel_id.to_string(),
+                                            &new_message.author.id.to_string(),
+                                            &new_message.content,
+                                            new_message.timestamp.unix_timestamp(),
+                                        ) {
+                                            tracing::error!(
+                                                "Failed to save message {} in channel {}: {}",
+                                                new_message.id,
+                                                new_message.channel_id,
+                                                e
+                                            );
+                                        }
+                                    }
+                                    Ok(false) => {}
+                                    Err(e) => {
+                                        tracing::error!(
+                                            "Failed to check tracking setting for channel {}: {}",
+                                            new_message.channel_id,
+                                            e
+                                        );
+                                    }
                                 }
                             }
                         }
                         _ => {}
                     }
                     Ok(())
+                })
+            },
+            on_error: |error| {
+                Box::pin(async move {
+                    match error {
+                        poise::FrameworkError::Command { error, ctx, .. } => {
+                            tracing::error!(
+                                "Command error in {}: {}",
+                                ctx.command().qualified_name,
+                                error
+                            );
+                            let _ = ctx.send(
+                                poise::CreateReply::default()
+                                    .content(format!("❌ {}", error))
+                                    .ephemeral(true)
+                            ).await;
+                        }
+                        other => {
+                            poise::builtins::on_error(other).await;
+                        }
+                    }
                 })
             },
             ..Default::default()
@@ -159,8 +198,8 @@ async fn main() -> anyhow::Result<()> {
                 ctx.set_activity(Some(serenity::ActivityData::custom(&config.status_message)));
                 
                 let llm_client = mascord::llm::LlmClient::new(&config);
-                let db = mascord::db::Database::new(&config).expect("Failed to open database");
-                db.execute_init().expect("Failed to initialize database");
+                let db = mascord::db::Database::new(&config).context("Failed to open database")?;
+                db.execute_init().context("Failed to initialize database")?;
                 
                 // Initialize cache with capacity of 1000 messages
                 let cache = mascord::cache::MessageCache::new(1000);
@@ -177,7 +216,8 @@ async fn main() -> anyhow::Result<()> {
 
                 // Initialize MCP
                 let mcp_manager = std::sync::Arc::new(
-                    mascord::mcp::client::McpClientManager::new(&config).expect("Failed to initialize MCP manager")
+                    mascord::mcp::client::McpClientManager::new(&config)
+                        .context("Failed to initialize MCP manager")?
                 );
                 
                 // Connect to MCP servers and discover tools
@@ -270,7 +310,10 @@ async fn main() -> anyhow::Result<()> {
     // Graceful shutdown handler
     let shard_manager = client.shard_manager.clone();
     tokio::spawn(async move {
-        tokio::signal::ctrl_c().await.expect("Could not register ctrl+c handler");
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            error!("Could not register ctrl+c handler: {}", e);
+            return;
+        }
         info!("Received shutdown signal, closing shards...");
         shard_manager.shutdown_all().await;
     });

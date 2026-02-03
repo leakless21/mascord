@@ -164,9 +164,14 @@ pub async fn get(ctx: Context<'_>) -> Result<(), Error> {
         "Server Custom Settings"
     };
 
+    let guild_name = ctx
+        .guild()
+        .map(|g| g.name)
+        .unwrap_or_else(|| "this server".to_string());
+
     let embed = serenity::CreateEmbed::new()
         .title("🧠 Context Settings")
-        .description(format!("Configuration for **{}**", ctx.guild().unwrap().name))
+        .description(format!("Configuration for **{}**", guild_name))
         .field("Message Limit", format!("`{}` messages", limit), true)
         .field("Retention", format!("`{}` hours", retention), true)
         .footer(serenity::CreateEmbedFooter::new(source))

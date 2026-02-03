@@ -15,4 +15,4 @@ Voice channel management and YouTube audio streaming.
 Uses `songbird` with `builtin-queue` and `yt-dlp` features enabled. Includes:
 - **IdleHandler**: Auto-disconnect after 5 minutes of inactivity.
 - **CleanupService**: Periodic deletion of old `yt-dlp` cache files.
-- **Cookie Support**: Passing cookies via `YTDL_ARGS` env var.
+- **Cookie Support**: Passing cookies via `YTDL_ARGS` env var; warns and skips if cookie file path is missing.
