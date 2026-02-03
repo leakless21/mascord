@@ -1,6 +1,6 @@
 use crate::commands::chat::send_embed_reply;
 use crate::context::ConversationContext;
-use crate::discord_text::extract_message_text;
+use crate::discord_text::{extract_message_text, strip_bot_mentions};
 use crate::llm::confirm::ToolConfirmationContext;
 use crate::{Data, Error};
 use async_openai::types::{
@@ -10,16 +10,22 @@ use async_openai::types::{
 use poise::serenity_prelude as serenity;
 use tracing::{error, info};
 
-/// Handle a message that is a reply to the bot
-pub async fn handle_reply(
+/// Handle a message where the bot is mentioned/tagged.
+pub async fn handle_mention(
     ctx: &serenity::Context,
     new_message: &serenity::Message,
     data: &Data,
 ) -> Result<(), Error> {
     info!(
-        "Handling reply from {} in channel {}: {}",
+        "Handling mention from {} in channel {}: {}",
         new_message.author.name, new_message.channel_id, new_message.content
     );
+
+    let prompt = strip_bot_mentions(&new_message.content, data.bot_id);
+    if prompt.trim().is_empty() {
+        // Avoid noisy replies when someone only pings the bot.
+        return Ok(());
+    }
 
     // Build messages with configurable system prompt
     let mut messages: Vec<ChatCompletionRequestMessage> =
@@ -28,7 +34,7 @@ pub async fn handle_reply(
             .build()?
             .into()];
 
-    // Inject channel context (recent messages)
+    // Inject channel context (recent messages), excluding this message (already in cache).
     let context_messages = ConversationContext::get_context_for_channel(
         &data.cache,
         &data.db,
@@ -40,52 +46,34 @@ pub async fn handle_reply(
     );
     messages.extend(context_messages);
 
-    // Include the message being replied to directly in the prompt (embed-safe).
+    // If this mention is itself a reply, include the referenced message explicitly.
     if let Some(referenced) = new_message.referenced_message.as_deref() {
-        // If the referenced bot message was itself a reply, include the message it was replying to.
-        if let Some(prev) = referenced.referenced_message.as_deref() {
-            let prev_text = extract_message_text(prev);
-            if !prev_text.trim().is_empty() {
-                let prev_msg: ChatCompletionRequestMessage = if prev.author.id.get() == data.bot_id
-                {
+        let referenced_text = extract_message_text(referenced);
+        if !referenced_text.trim().is_empty() {
+            let referenced_msg: ChatCompletionRequestMessage =
+                if referenced.author.id.get() == data.bot_id {
                     ChatCompletionRequestAssistantMessageArgs::default()
-                        .content(prev_text)
+                        .content(referenced_text)
                         .build()?
                         .into()
                 } else {
                     ChatCompletionRequestUserMessageArgs::default()
-                        .content(format!("[{}]: {}", prev.author.name, prev_text))
+                        .content(format!("[{}]: {}", referenced.author.name, referenced_text))
                         .build()?
                         .into()
                 };
-                messages.push(prev_msg);
-            }
-        }
-
-        let referenced_text = extract_message_text(referenced);
-        if !referenced_text.trim().is_empty() {
-            messages.push(
-                ChatCompletionRequestAssistantMessageArgs::default()
-                    .content(referenced_text)
-                    .build()?
-                    .into(),
-            );
+            messages.push(referenced_msg);
         }
     }
 
-    // Add the current user message (the reply)
+    // Add the current user message (with mention stripped)
     messages.push(
         ChatCompletionRequestUserMessageArgs::default()
-            .content(format!(
-                "[{}]: {}",
-                new_message.author.name,
-                new_message.content.clone()
-            ))
+            .content(format!("[{}]: {}", new_message.author.name, prompt))
             .build()?
             .into(),
     );
 
-    // Send a "Thinking..." message or use typing indicator
     let typing = new_message.channel_id.start_typing(&ctx.http);
 
     let agent = crate::llm::agent::Agent::new(data);
@@ -95,18 +83,18 @@ pub async fn handle_reply(
         new_message.author.id,
         std::time::Duration::from_secs(data.config.agent_confirm_timeout_secs),
     );
+
     let response = match agent.run_with_confirmation(confirm_ctx, messages, 10).await {
         Ok(r) => r,
         Err(e) => {
-            error!("Agent error handling reply: {}", e);
+            error!("Agent error handling mention: {}", e);
             format!("❌ Assistant Error: {}", e)
         }
     };
 
-    // Stop typing indicator (implicit when it goes out of scope, but we can be explicit)
     drop(typing);
 
-    // Handle long responses with embeds and reply to the user's message
+    // Reply directly to the mention message
     let sent_ids = send_embed_reply(
         &ctx.http,
         new_message.channel_id,
@@ -134,11 +122,6 @@ pub async fn handle_reply(
         synthetic.timestamp = serenity::Timestamp::now();
         data.cache.insert(synthetic);
     }
-
-    info!(
-        "Assistant reply sent to {} in channel {}",
-        new_message.author.name, new_message.channel_id
-    );
 
     Ok(())
 }

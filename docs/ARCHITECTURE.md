@@ -9,7 +9,7 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 ### 1. Bot Framework (Poise/Serenity)
 
 - **Responsibility**: Discord API interaction, gateway management, command dispatching.
-- **Interface**: Uses `poise::Framework` for command routing. Unified `/chat` command for all interactions.
+- **Interface**: Uses `poise::Framework` for command routing, plus message-based triggers (bot mentions and replies-to-bot) for chat.
 - **Dependencies**: Discord Gateway.
 
 ### 2. Audio Service (Songbird)
@@ -78,6 +78,12 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 - **Interface**: `src/reply.rs`.
 - **Dependencies**: `src/commands/chat.rs`, `src/llm/agent.rs`.
 
+### 11. Mention Handler
+
+- **Responsibility**: Detecting and processing Discord messages that mention/tag the bot.
+- **Interface**: `src/mention.rs`.
+- **Dependencies**: `src/commands/chat.rs`, `src/llm/agent.rs`.
+
 ## Error Handling & Surfacing
 
 - **Command errors**: Centralized Poise `on_error` handler logs full details and sends a user-facing error message.
@@ -122,6 +128,8 @@ graph LR
         ChatCmd --> Agent[Agent Loop]
         Framework --> ReplyHandler[Reply Handler - src/reply.rs]
         ReplyHandler --> Agent
+        Framework --> MentionHandler[Mention Handler - src/mention.rs]
+        MentionHandler --> Agent
         Framework --> Voice[Voice Service - src/voice/]
         Framework --> RAG[RAG Service - src/rag/]
         Framework --> Cache[Caching Layer - src/cache.rs]

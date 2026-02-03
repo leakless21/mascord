@@ -9,6 +9,8 @@ General bot setup, command registration, and event lifecycle management.
 - `src/main.rs`: Entry point and Poise framework initialization.
 - `src/config.rs`: Configuration handling (env vars, constants).
 - `src/commands/mod.rs`: Command registration and grouping.
+- `src/reply.rs`: Reply-to-bot message handler (auto-chat).
+- `src/mention.rs`: Mention/tag message handler (auto-chat).
 - `src/summarize.rs`: Background summarization manager (rolling summary with caps, refresh, milestones).
 
 ## Configuration & Environment

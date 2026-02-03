@@ -108,19 +108,11 @@ async fn main() -> anyhow::Result<()> {
                 Box::pin(async move {
                     if let serenity::FullEvent::Message { new_message } = event {
                         if !new_message.author.bot {
-                            // Check if this is a reply to the bot
-                            if let Some(referenced) = &new_message.referenced_message {
-                                if referenced.author.id.get() == data.bot_id {
-                                    if let Err(e) =
-                                        mascord::reply::handle_reply(ctx, new_message, data).await
-                                    {
-                                        tracing::error!("Error handling reply: {}", e);
-                                    }
-                                }
-                            }
-
                             // Check if channel tracking is enabled
-                            match data.db.is_channel_tracking_enabled(&new_message.channel_id.to_string()) {
+                            match data
+                                .db
+                                .is_channel_tracking_enabled(&new_message.channel_id.to_string())
+                            {
                                 Ok(true) => {
                                     // Populate internal cache
                                     data.cache.insert(new_message.clone());
@@ -148,6 +140,32 @@ async fn main() -> anyhow::Result<()> {
                                         new_message.channel_id,
                                         e
                                     );
+                                }
+                            }
+
+                            // Trigger chat via reply-to-bot or direct mention/tag.
+                            let is_reply_to_bot = new_message
+                                .referenced_message
+                                .as_deref()
+                                .is_some_and(|referenced| referenced.author.id.get() == data.bot_id);
+                            if is_reply_to_bot {
+                                if let Err(e) =
+                                    mascord::reply::handle_reply(ctx, new_message, data).await
+                                {
+                                    tracing::error!("Error handling reply: {}", e);
+                                }
+                            } else {
+                                let mentions_bot = new_message
+                                    .mentions
+                                    .iter()
+                                    .any(|u| u.id.get() == data.bot_id);
+                                if mentions_bot {
+                                    if let Err(e) =
+                                        mascord::mention::handle_mention(ctx, new_message, data)
+                                            .await
+                                    {
+                                        tracing::error!("Error handling mention: {}", e);
+                                    }
                                 }
                             }
                         }
@@ -224,13 +242,60 @@ async fn main() -> anyhow::Result<()> {
                         .context("Failed to initialize MCP manager")?
                 );
 
-                // Connect to MCP servers and discover tools
-                for mcp_config in &config.mcp_servers {
+                // Connect to MCP servers (best-effort) and warm up tool discovery.
+                let mcp_timeout = tokio::time::Duration::from_secs(config.mcp_timeout_secs);
+                let mut mcp_connect_handles = Vec::new();
+                for mcp_config in config.mcp_servers.clone() {
                     let manager = mcp_manager.clone();
-                    let mcp_config = mcp_config.clone();
+                    mcp_connect_handles.push(tokio::spawn(async move {
+                        let name = mcp_config.name.clone();
+                        let result = tokio::time::timeout(mcp_timeout, manager.connect(&mcp_config)).await;
+                        (name, result)
+                    }));
+                }
+
+                if !mcp_connect_handles.is_empty() {
+                    let warmup_manager = mcp_manager.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = manager.connect(&mcp_config).await {
-                            tracing::error!("Failed to connect to MCP server {}: {}", mcp_config.name, e);
+                        for handle in mcp_connect_handles {
+                            match handle.await {
+                                Ok((name, Ok(Ok(())))) => {
+                                    tracing::info!("MCP server '{}' connected", name);
+                                }
+                                Ok((name, Ok(Err(e)))) => {
+                                    tracing::error!(
+                                        "Failed to connect to MCP server '{}': {}",
+                                        name,
+                                        e
+                                    );
+                                }
+                                Ok((name, Err(_))) => {
+                                    tracing::error!(
+                                        "Timed out connecting to MCP server '{}' after {:?}",
+                                        name,
+                                        mcp_timeout
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::error!("MCP connect task join error: {}", e);
+                                }
+                            }
+                        }
+
+                        let active = warmup_manager.list_active_servers().await;
+                        let tools = warmup_manager.list_all_tools().await;
+                        tracing::info!(
+                            "MCP warmup: {} active servers, {} tools available",
+                            active.len(),
+                            tools.len()
+                        );
+                        if !tools.is_empty() {
+                            let names = tools
+                                .iter()
+                                .map(|t| t.name().to_string())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            tracing::debug!("MCP tools: {}", names);
                         }
                     });
                 }

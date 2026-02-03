@@ -52,8 +52,16 @@ impl Agent {
             tracing::info!("Agent iteration {}/{}", i + 1, max_iterations);
             // Get all available tools (built-in + MCP)
             let mut all_tools = self.tools.list_tools();
+            let builtin_count = all_tools.len();
             let mcp_tools = self.mcp_manager.list_all_tools().await;
+            let mcp_count = mcp_tools.len();
             all_tools.extend(mcp_tools);
+            tracing::debug!(
+                "Agent tools available: builtin={}, mcp={}, total={}",
+                builtin_count,
+                mcp_count,
+                all_tools.len()
+            );
 
             // Build tool definitions for OpenAI
             let tool_definitions: Vec<Value> = all_tools

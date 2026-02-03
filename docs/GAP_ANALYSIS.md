@@ -90,24 +90,24 @@ Last reviewed: February 3, 2026 (hybrid retrieval, milestone extraction, retenti
 
 ### GAP-008: No LLM Request Timeout 🔴
 
-**Status**: Open
-**Description**: `async_openai` calls have no explicit timeout. Slow/hung LLM server blocks command indefinitely.
-**Impact**: User gets no response, command appears hung.
-**Resolution**: Wrap LLM calls with `tokio::time::timeout()` and configurable duration.
+**Status**: Resolved ✅
+**Description**: `async_openai` calls needed explicit timeout guards.
+**Impact**: Slow/hung LLM server could block commands indefinitely.
+**Resolution**: Implemented `tokio::time::timeout()` guards with configurable durations in `src/llm/client.rs`.
 
 ### GAP-009: No MCP Tool Execution Timeout 🔴
 
-**Status**: Open
-**Description**: MCP tool calls (`mcp/client.rs:117-123`) have no timeout protection.
-**Impact**: Malicious/slow MCP server blocks agent loop.
-**Resolution**: Add timeout wrapper around `service.call_tool()`.
+**Status**: Resolved ✅
+**Description**: MCP tool calls needed timeout protection.
+**Impact**: Slow MCP server could block agent loop.
+**Resolution**: Implemented `tokio::time::timeout()` guards around `service.call_tool()` in `src/mcp/client.rs`.
 
 ### GAP-010: No Embedding Request Timeout 🟡
 
-**Status**: Open
-**Description**: `get_embeddings()` has no timeout for slow embedding servers.
-**Impact**: Search operations can hang indefinitely.
-**Resolution**: Add timeout wrapper to embedding requests.
+**Status**: Resolved ✅
+**Description**: Embedding requests needed timeout protection.
+**Impact**: Search operations could hang indefinitely.
+**Resolution**: Implemented `tokio::time::timeout()` guards in `src/llm/client.rs`.
 
 ---
 

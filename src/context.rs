@@ -35,6 +35,7 @@ impl ConversationContext {
         channel_id: ChannelId,
         guild_id: Option<u64>,
         bot_id: Option<u64>,
+        exclude_message_id: Option<u64>,
     ) -> Vec<ChatCompletionRequestMessage> {
         // Resolve settings: Check DB -> Fallback to Config
         let (limit, retention) = if let Some(gid) = guild_id {
@@ -68,7 +69,7 @@ impl ConversationContext {
                     "%Y-%m-%d %H:%M:%S %z",
                 ) {
                     let scope_unix = scope_ts.timestamp();
-                    let should_update = cutoff_unix.map_or(true, |cutoff| scope_unix > cutoff);
+                    let should_update = cutoff_unix.is_none_or(|cutoff| scope_unix > cutoff);
                     if should_update {
                         debug!(
                             "Context: Respecting memory scope for channel {}: messages after {}",
@@ -133,9 +134,10 @@ impl ConversationContext {
 
         let mut short_term_messages: Vec<ChatCompletionRequestMessage> = entries
             .into_iter()
+            .filter(|msg| exclude_message_id.is_none_or(|exclude| msg.id.get() != exclude))
             .filter(|msg| {
                 // Filter by retention period using unix timestamps (unless disabled)
-                cutoff_unix.map_or(true, |cutoff| msg.timestamp.unix_timestamp() > cutoff)
+                cutoff_unix.is_none_or(|cutoff| msg.timestamp.unix_timestamp() > cutoff)
             })
             .filter_map(|msg| Self::format_message(&msg, bot_id))
             .collect();
@@ -276,6 +278,7 @@ mod tests {
             ChannelId::new(100),
             Some(123),
             Some(999), // Bot ID
+            None,
         );
 
         assert_eq!(context.len(), 4);
@@ -298,6 +301,7 @@ mod tests {
             &config,
             ChannelId::new(100),
             Some(123),
+            None,
             None,
         );
 
@@ -327,6 +331,7 @@ mod tests {
             &config,
             ChannelId::new(100),
             Some(123),
+            None,
             None,
         );
 

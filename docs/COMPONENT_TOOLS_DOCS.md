@@ -43,6 +43,17 @@ The bot owner can manage MCP servers directly from Discord:
 
 Supports `stdio` transport for running local scripts/binaries as tool providers.
 
+### Transport Notes
+
+- **Supported**: `stdio` (local child-process servers).
+- **Not yet supported**: `sse` (remote servers via HTTP/SSE).
+- Back-compat: configs that specify `transport = "http"`/`"https"` without a `url` are treated as `stdio` for common MCP examples.
+
+### Startup & Availability
+
+- MCP connections are established in the background during startup and a warmup log line reports active server count and discovered tool count.
+- The agent logs the number of built-in vs MCP tools available each iteration at `debug` level.
+
 ## Platform Notes
 - MCP tools may require external runtimes (for example, Node.js when using `npx`-based servers).
 - Ensure tool binaries are available on the host OS `PATH` for macOS and Linux deployments.

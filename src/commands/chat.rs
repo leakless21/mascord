@@ -38,6 +38,7 @@ pub async fn chat(
         ctx.channel_id(),
         ctx.guild_id().map(|id| id.get()),
         Some(ctx.data().bot_id),
+        None,
     );
     messages.extend(context_messages);
 
@@ -122,9 +123,10 @@ pub async fn send_embed_reply(
     channel_id: poise::serenity_prelude::ChannelId,
     content: &str,
     reply_to: Option<poise::serenity_prelude::MessageId>,
-) -> Result<(), Error> {
+) -> Result<Vec<poise::serenity_prelude::MessageId>, Error> {
     use poise::serenity_prelude::CreateMessage;
 
+    let mut sent_ids = Vec::new();
     let mut message = CreateMessage::new();
     if let Some(id) = reply_to {
         message = message.reference_message((channel_id, id));
@@ -137,7 +139,8 @@ pub async fn send_embed_reply(
             .color(0x5865F2)
             .footer(CreateEmbedFooter::new("Powered by llama.cpp"));
 
-        channel_id.send_message(http, message.embed(embed)).await?;
+        let sent = channel_id.send_message(http, message.embed(embed)).await?;
+        sent_ids.push(sent.id);
     } else {
         let chunks: Vec<&str> = content
             .as_bytes()
@@ -151,10 +154,11 @@ pub async fn send_embed_reply(
                 .description(*chunk)
                 .color(0x5865F2);
 
-            channel_id
+            let sent = channel_id
                 .send_message(&http, message.clone().embed(embed))
                 .await?;
+            sent_ids.push(sent.id);
         }
     }
-    Ok(())
+    Ok(sent_ids)
 }

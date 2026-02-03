@@ -35,10 +35,12 @@ impl McpClientManager {
     }
 
     pub async fn connect(&self, config: &McpServerConfig) -> Result<()> {
-        let mut services_lock = self.services.lock().await;
-        if services_lock.contains_key(&config.name) {
-            debug!("MCP server '{}' already connected", config.name);
-            return Ok(());
+        {
+            let services_lock = self.services.lock().await;
+            if services_lock.contains_key(&config.name) {
+                debug!("MCP server '{}' already connected", config.name);
+                return Ok(());
+            }
         }
 
         info!(
@@ -89,6 +91,14 @@ impl McpClientManager {
             "MCP client: Successfully connected to server '{}'",
             config.name
         );
+        let mut services_lock = self.services.lock().await;
+        if services_lock.contains_key(&config.name) {
+            debug!(
+                "MCP server '{}' connected while connection was in-flight; keeping existing connection",
+                config.name
+            );
+            return Ok(());
+        }
         services_lock.insert(config.name.clone(), Arc::new(running));
         Ok(())
     }
@@ -113,11 +123,17 @@ impl McpClientManager {
     }
 
     pub async fn list_all_tools(&self) -> Vec<Arc<dyn Tool>> {
-        let services = self.services.lock().await;
+        let services_snapshot: Vec<(String, Arc<RunningMcpService>)> = {
+            let services = self.services.lock().await;
+            services
+                .iter()
+                .map(|(name, service)| (name.clone(), service.clone()))
+                .collect()
+        };
         let mut all_tools = Vec::new();
         let require_confirmation = self.require_confirmation;
 
-        for (server_name, service) in services.iter() {
+        for (server_name, service) in services_snapshot {
             debug!(
                 "MCP client: Discovering tools from server '{}'...",
                 server_name
