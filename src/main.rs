@@ -1,19 +1,19 @@
-use mascord::{config::Config, Data};
-use mascord::commands::{chat, rag, music, admin, mcp, settings};
-use poise::serenity_prelude as serenity;
-use tracing::{info, debug, error};
-use tracing_subscriber::{prelude::*, EnvFilter, fmt};
-use songbird::serenity::SerenityInit;
-use serenity::all::Http;
-use std::collections::HashSet;
 use anyhow::Context as AnyhowContext;
+use mascord::commands::{admin, chat, mcp, music, rag, settings};
+use mascord::{config::Config, Data};
+use poise::serenity_prelude as serenity;
+use serenity::all::Http;
+use songbird::serenity::SerenityInit;
+use std::collections::HashSet;
+use tracing::{debug, error, info};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize logging with EnvFilter
     // Default: debug for mascord, info for key deps, warn for noisy HTTP internals
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new(
             "mascord=debug,\
              poise=debug,\
              serenity=debug,\
@@ -25,16 +25,17 @@ async fn main() -> anyhow::Result<()> {
              h2=warn,\
              hyper=warn,\
              hyper_util=warn,\
-             rustls=warn"
-        ));
-    
+             rustls=warn",
+        )
+    });
+
     tracing_subscriber::registry()
         .with(filter)
         .with(fmt::layer().with_target(true).compact())
         .init();
 
     info!("Starting Mascord...");
-    
+
     // Load configuration
     debug!("Loading configuration...");
     let mut config = Config::from_env()?;
@@ -45,7 +46,10 @@ async fn main() -> anyhow::Result<()> {
         if config.owner_id.is_none() {
             tracing::warn!("OWNER_ID not set in config. Admin commands may not work. Skipping dynamic fetch to avoid rate limits.");
         } else {
-            info!("Using configured application ID ({}) and owner ID ({:?})", config.application_id, config.owner_id);
+            info!(
+                "Using configured application ID ({}) and owner ID ({:?})",
+                config.application_id, config.owner_id
+            );
         }
         (config.application_id, config.owner_id)
     } else {
@@ -63,11 +67,14 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     None
                 };
-                
+
                 let id = info.id.get();
-                info!("Fetched dynamic application ID: {} and owner: {:?}", id, owner_id);
+                info!(
+                    "Fetched dynamic application ID: {} and owner: {:?}",
+                    id, owner_id
+                );
                 (id, owner_id)
-            },
+            }
             Err(e) => {
                 error!("Failed to fetch application info: {}. Cloudflare/Discord rate limits might be active. Falling back to config values.", e);
                 (config.application_id, config.owner_id)
@@ -82,7 +89,6 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let discord_token = config.discord_token.clone();
-
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
@@ -100,52 +106,51 @@ async fn main() -> anyhow::Result<()> {
             ],
             event_handler: |ctx, event, _framework, data| {
                 Box::pin(async move {
-                    match event {
-                        serenity::FullEvent::Message { new_message } => {
-                            if !new_message.author.bot {
-                                // Check if this is a reply to the bot
-                                if let Some(referenced) = &new_message.referenced_message {
-                                    if referenced.author.id.get() == data.bot_id {
-                                        if let Err(e) = mascord::reply::handle_reply(ctx, new_message, data).await {
-                                            tracing::error!("Error handling reply: {}", e);
-                                        }
+                    if let serenity::FullEvent::Message { new_message } = event {
+                        if !new_message.author.bot {
+                            // Check if this is a reply to the bot
+                            if let Some(referenced) = &new_message.referenced_message {
+                                if referenced.author.id.get() == data.bot_id {
+                                    if let Err(e) =
+                                        mascord::reply::handle_reply(ctx, new_message, data).await
+                                    {
+                                        tracing::error!("Error handling reply: {}", e);
                                     }
                                 }
+                            }
 
-                                // Check if channel tracking is enabled
-                                match data.db.is_channel_tracking_enabled(&new_message.channel_id.to_string()) {
-                                    Ok(true) => {
-                                        // Populate internal cache
-                                        data.cache.insert(new_message.clone());
+                            // Check if channel tracking is enabled
+                            match data.db.is_channel_tracking_enabled(&new_message.channel_id.to_string()) {
+                                Ok(true) => {
+                                    // Populate internal cache
+                                    data.cache.insert(new_message.clone());
 
-                                        if let Err(e) = data.db.save_message(
-                                            &new_message.id.to_string(),
-                                            &new_message.guild_id.map(|id| id.to_string()).unwrap_or_default(),
-                                            &new_message.channel_id.to_string(),
-                                            &new_message.author.id.to_string(),
-                                            &new_message.content,
-                                            new_message.timestamp.unix_timestamp(),
-                                        ) {
-                                            tracing::error!(
-                                                "Failed to save message {} in channel {}: {}",
-                                                new_message.id,
-                                                new_message.channel_id,
-                                                e
-                                            );
-                                        }
-                                    }
-                                    Ok(false) => {}
-                                    Err(e) => {
+                                    if let Err(e) = data.db.save_message(
+                                        &new_message.id.to_string(),
+                                        &new_message.guild_id.map(|id| id.to_string()).unwrap_or_default(),
+                                        &new_message.channel_id.to_string(),
+                                        &new_message.author.id.to_string(),
+                                        &new_message.content,
+                                        new_message.timestamp.unix_timestamp(),
+                                    ) {
                                         tracing::error!(
-                                            "Failed to check tracking setting for channel {}: {}",
+                                            "Failed to save message {} in channel {}: {}",
+                                            new_message.id,
                                             new_message.channel_id,
                                             e
                                         );
                                     }
                                 }
+                                Ok(false) => {}
+                                Err(e) => {
+                                    tracing::error!(
+                                        "Failed to check tracking setting for channel {}: {}",
+                                        new_message.channel_id,
+                                        e
+                                    );
+                                }
                             }
                         }
-                        _ => {}
                     }
                     Ok(())
                 })
@@ -166,7 +171,7 @@ async fn main() -> anyhow::Result<()> {
                             ).await;
                         }
                         other => {
-                            poise::builtins::on_error(other).await;
+                            let _ = poise::builtins::on_error(other).await;
                         }
                     }
                 })
@@ -176,14 +181,14 @@ async fn main() -> anyhow::Result<()> {
         .setup(|ctx, _ready, framework| {
             Box::pin(async move {
                 info!("Bot is ready!");
-                
+
                 // Optimized command registration (Ref: GAP-017 optimization)
                 if config.register_commands {
                     if let Some(guild_id) = config.dev_guild_id {
                         info!("Registering commands specifically to development guild: {}", guild_id);
                         poise::builtins::register_in_guild(
-                            ctx, 
-                            &framework.options().commands, 
+                            ctx,
+                            &framework.options().commands,
                             serenity::GuildId::new(guild_id)
                         ).await?;
                     } else {
@@ -193,25 +198,24 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     info!("Skipping command registration (REGISTER_COMMANDS=false). Use existing registration.");
                 }
-                
+
                 // Set bot status
                 ctx.set_activity(Some(serenity::ActivityData::custom(&config.status_message)));
-                
+
                 let llm_client = mascord::llm::LlmClient::new(&config);
                 let db = mascord::db::Database::new(&config).context("Failed to open database")?;
                 db.execute_init().context("Failed to initialize database")?;
-                
+
                 // Initialize cache with capacity of 1000 messages
                 let cache = mascord::cache::MessageCache::new(1000);
 
                 // Initialize Tools
                 let mut registry = mascord::tools::ToolRegistry::new();
                 registry.register(std::sync::Arc::new(mascord::tools::builtin::music::PlayMusicTool));
-                registry.register(std::sync::Arc::new(mascord::tools::builtin::rag::SearchLocalHistoryTool { 
+                registry.register(std::sync::Arc::new(mascord::tools::builtin::rag::SearchLocalHistoryTool {
                     db: db.clone(),
                     llm: llm_client.clone(),
                 }));
-                registry.register(std::sync::Arc::new(mascord::tools::builtin::admin::ShutdownTool));
                 let tools = std::sync::Arc::new(registry);
 
                 // Initialize MCP
@@ -219,7 +223,7 @@ async fn main() -> anyhow::Result<()> {
                     mascord::mcp::client::McpClientManager::new(&config)
                         .context("Failed to initialize MCP manager")?
                 );
-                
+
                 // Connect to MCP servers and discover tools
                 for mcp_config in &config.mcp_servers {
                     let manager = mcp_manager.clone();
@@ -230,24 +234,59 @@ async fn main() -> anyhow::Result<()> {
                         }
                     });
                 }
-                
-                // Start background summarization task (runs every 4 hours)
-                let db_clone = db.clone();
-                let llm_clone = llm_client.clone();
-                tokio::spawn(async move {
-                    let _manager = mascord::summarize::SummarizationManager::new(db_clone, llm_clone);
-                    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(4 * 3600));
-                    
-                    loop {
-                        interval.tick().await;
-                        // For now, we summarize the current channel history or all active channels
-                        // A more advanced version would query unique channel_ids from the DB
-                        info!("Triggering periodic background summarization...");
-                        // TODO: Implement multi-channel discovery for summarization
-                        // For MVP, we've enabled manual trigger via /settings context summarize
-                    }
-                });
-                
+
+                if config.summarization_enabled {
+                    // Start background summarization task (tick interval configurable; triggers decide per-channel work)
+                    let db_clone = db.clone();
+                    let llm_clone = llm_client.clone();
+                    let config_clone = config.clone();
+                    tokio::spawn(async move {
+                        let manager = mascord::summarize::SummarizationManager::new(
+                            db_clone,
+                            llm_clone,
+                            &config_clone,
+                        );
+                        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(
+                            config_clone.summarization_interval_secs,
+                        ));
+
+                        loop {
+                            interval.tick().await;
+                            info!("Starting periodic background summarization cycle...");
+                            match manager.get_active_channels().await {
+                                Ok(channels) => {
+                                    for channel_id in channels {
+                                        match manager.should_summarize_channel(&channel_id).await {
+                                            Ok(true) => {
+                                                if let Err(e) =
+                                                    manager.summarize_channel(&channel_id, 1).await
+                                                {
+                                                    tracing::error!(
+                                                        "Failed to summarize channel {}: {}",
+                                                        channel_id,
+                                                        e
+                                                    );
+                                                }
+                                            }
+                                            Ok(false) => {}
+                                            Err(e) => {
+                                                tracing::error!(
+                                                    "Failed to evaluate summarization trigger for channel {}: {}",
+                                                    channel_id,
+                                                    e
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to fetch active channels: {}", e);
+                                }
+                            }
+                        }
+                    });
+                }
+
                 // Start YouTube cleanup task
                 let download_dir = config.youtube_download_dir.clone();
                 let cleanup_secs = config.youtube_cleanup_after_secs;
@@ -255,27 +294,81 @@ async fn main() -> anyhow::Result<()> {
                     mascord::voice::cleanup::start_cleanup_task(download_dir, cleanup_secs).await;
                 });
 
-                // Start database message cleanup task (runs every hour)
-                let db_cleanup = db.clone();
+                // Start short-term cache cleanup task (runs every hour).
+                // This only prunes the in-memory cache, not the long-term RAG store.
+                let cache_cleanup = cache.clone();
                 let retention_hours = config.context_retention_hours;
-                tokio::spawn(async move {
-                    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600));
-                    loop {
-                        interval.tick().await;
-                        match db_cleanup.cleanup_old_messages(retention_hours) {
-                            Ok(count) if count > 0 => {
-                                info!("Database cleanup: deleted {} old messages (retention: {}h)", count, retention_hours);
-                            }
-                            Ok(_) => {
-                                tracing::debug!("Database cleanup: no old messages to delete");
-                            }
-                            Err(e) => {
-                                tracing::error!("Database cleanup error: {}", e);
+                if retention_hours > 0 {
+                    tokio::spawn(async move {
+                        let mut interval =
+                            tokio::time::interval(tokio::time::Duration::from_secs(3600));
+                        loop {
+                            interval.tick().await;
+                            let removed = cache_cleanup.cleanup_old_messages(retention_hours);
+                            if removed > 0 {
+                                info!(
+                                    "Short-term cache cleanup: removed {} messages (retention: {}h)",
+                                    removed, retention_hours
+                                );
                             }
                         }
-                    }
-                });
-                
+                    });
+                } else {
+                    info!("Short-term cache cleanup disabled (CONTEXT_RETENTION_HOURS=0)");
+                }
+
+                // Start long-term retention cleanup task (runs every hour).
+                // This applies to the RAG store (messages table).
+                let db_cleanup = db.clone();
+                let retention_days = config.long_term_retention_days;
+                if retention_days > 0 {
+                    tokio::spawn(async move {
+                        let mut interval =
+                            tokio::time::interval(tokio::time::Duration::from_secs(3600));
+                        loop {
+                            interval.tick().await;
+                            let retention_hours = retention_days.saturating_mul(24);
+                            match db_cleanup.cleanup_old_messages(retention_hours) {
+                                Ok(count) if count > 0 => {
+                                    info!(
+                                        "Long-term cleanup: deleted {} old messages (retention: {} days)",
+                                        count, retention_days
+                                    );
+                                }
+                                Ok(_) => {
+                                    tracing::debug!(
+                                        "Long-term cleanup: no old messages to delete"
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::error!("Long-term cleanup error: {}", e);
+                                }
+                            }
+                        }
+                    });
+                } else {
+                    info!("Long-term cleanup disabled (LONG_TERM_RETENTION_DAYS=0)");
+                }
+
+                if config.embedding_indexer_enabled {
+                    // Start background embedding indexer (best-effort, non-blocking).
+                    // This avoids embedding calls on the Discord event handler hot path.
+                    let db_index = db.clone();
+                    let llm_index = std::sync::Arc::new(llm_client.clone());
+                    let batch_size = config.embedding_indexer_batch_size;
+                    let interval_secs = config.embedding_indexer_interval_secs;
+                    tokio::spawn(async move {
+                        mascord::indexer::EmbeddingIndexer::new(
+                            db_index,
+                            llm_index,
+                            batch_size,
+                            tokio::time::Duration::from_secs(interval_secs),
+                        )
+                        .run()
+                        .await;
+                    });
+                }
+
                 let bot_id = config.application_id;
 
                 Ok(Data {
@@ -293,7 +386,7 @@ async fn main() -> anyhow::Result<()> {
         .build();
     debug!("Poise framework built successfully");
 
-    let intents = serenity::GatewayIntents::non_privileged() 
+    let intents = serenity::GatewayIntents::non_privileged()
         | serenity::GatewayIntents::MESSAGE_CONTENT
         | serenity::GatewayIntents::GUILD_MESSAGES
         | serenity::GatewayIntents::GUILD_VOICE_STATES;

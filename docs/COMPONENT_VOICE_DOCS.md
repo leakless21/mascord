@@ -16,3 +16,7 @@ Uses `songbird` with `builtin-queue` and `yt-dlp` features enabled. Includes:
 - **IdleHandler**: Auto-disconnect after 5 minutes of inactivity.
 - **CleanupService**: Periodic deletion of old `yt-dlp` cache files.
 - **Cookie Support**: Passing cookies via `YTDL_ARGS` env var; warns and skips if cookie file path is missing.
+
+## Platform Notes
+- Voice playback requires `yt-dlp` and `ffmpeg` available on `PATH`.
+- On macOS, install dependencies with Homebrew (e.g., `brew install yt-dlp ffmpeg`).

@@ -1,17 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum McpTransport {
+    #[default]
     Stdio,
     Sse,
-}
-
-impl Default for McpTransport {
-    fn default() -> Self {
-        Self::Stdio
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

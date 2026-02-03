@@ -28,6 +28,12 @@ Mascord requires the following external tools for full functionality:
 - **FFmpeg**: Required for audio processing. [Install FFmpeg](https://ffmpeg.org/download.html)
 - **LLM Provider**: Any OpenAI-compatible API (e.g., `llama.cpp` server, LocalAI, vLLM, or OpenAI).
 
+#### Platform Notes
+
+- **Target platforms**: macOS and Linux. macOS support is intended but not yet CI-validated.
+- **macOS setup**: You can install `yt-dlp` and `ffmpeg` with Homebrew: `brew install yt-dlp ffmpeg`.
+- **MCP servers** (optional): If you use `npx`-based MCP servers, install Node.js so `npx` is available.
+
 ### 2. Configuration (`.env`)
 
 Copy `.env.example` to `.env` and configure your credentials:
@@ -45,6 +51,75 @@ Fill in the following essential variables:
 
 > [!TIP]
 > Many more settings (timeouts, retention policies, YouTube settings, etc.) are available! Check the [`.env.example`](.env.example) file for the full list of configurable options.
+
+#### Environment Variable Reference (Commented)
+Below is a commented reference you can copy into `.env` as needed:
+```bash
+# --- Discord ---
+DISCORD_TOKEN=your_token_here                  # Required: Discord bot token
+APPLICATION_ID=123456789012345678             # Required: Discord application ID
+OWNER_ID=123456789012345678                    # Optional: owner-only admin commands
+
+# --- LLM ---
+LLAMA_URL=http://localhost:8080/v1             # Required: OpenAI-compatible API base (must include /v1)
+LLAMA_MODEL=local-model                        # Chat model name
+LLAMA_API_KEY=optional_key_here                # Optional: API key (if provider requires it)
+
+# --- Embeddings ---
+EMBEDDING_URL=http://localhost:8080/v1         # Defaults to LLAMA_URL if not set
+EMBEDDING_MODEL=local-model                    # Embedding model name
+EMBEDDING_API_KEY=optional_key_here            # Optional: API key for embeddings
+
+# --- Storage ---
+DATABASE_URL=data/mascord.db                   # SQLite DB location
+
+# --- Bot behavior ---
+SYSTEM_PROMPT=...                              # System prompt for the assistant
+STATUS_MESSAGE=Ready to assist!                # Discord status message
+
+# --- Memory (Short-term context) ---
+CONTEXT_MESSAGE_LIMIT=50                       # Max recent messages injected into LLM
+CONTEXT_RETENTION_HOURS=24                     # Retention window; set 0 to disable time filter
+
+# --- Summarization (Working memory) ---
+SUMMARIZATION_ENABLED=true
+SUMMARIZATION_INTERVAL_SECS=3600               # Scheduler tick interval
+SUMMARIZATION_ACTIVE_CHANNELS_LOOKBACK_DAYS=7  # Channels considered "active"
+SUMMARIZATION_INITIAL_MIN_MESSAGES=50          # Minimum activity before first summary
+SUMMARIZATION_TRIGGER_NEW_MESSAGES=150         # Trigger: new messages threshold
+SUMMARIZATION_TRIGGER_AGE_HOURS=6              # Trigger: age threshold
+SUMMARIZATION_TRIGGER_MIN_NEW_MESSAGES=20      # Trigger: min new msgs when age threshold is hit
+SUMMARIZATION_MAX_TOKENS=1200                  # Approx token cap for summary
+SUMMARIZATION_REFRESH_WEEKS=6                  # Periodic refresh cadence
+SUMMARIZATION_REFRESH_DAYS_LOOKBACK=14         # Lookback window for refresh
+
+# --- Embedding indexer (Long-term memory) ---
+EMBEDDING_INDEXER_ENABLED=true                 # Background embedding backfill
+EMBEDDING_INDEXER_BATCH_SIZE=25                # Messages per batch
+EMBEDDING_INDEXER_INTERVAL_SECS=30             # Seconds between batches
+
+# --- Long-term memory retention (RAG store) ---
+LONG_TERM_RETENTION_DAYS=365                   # Set 0 to disable cleanup
+
+# --- Agent tool confirmation ---
+AGENT_CONFIRM_TIMEOUT_SECS=300                 # Confirmation timeout (seconds)
+MCP_TOOLS_REQUIRE_CONFIRMATION=true            # Require confirmation for MCP tools
+
+# --- Timeouts ---
+LLM_TIMEOUT_SECS=120
+EMBEDDING_TIMEOUT_SECS=30
+MCP_TIMEOUT_SECS=60
+
+# --- Voice / YouTube ---
+YOUTUBE_COOKIES=/path/to/cookies.txt           # Optional: cookies file for age-restricted content
+YOUTUBE_DOWNLOAD_DIR=/tmp/mascord_audio        # yt-dlp download cache
+YOUTUBE_CLEANUP_AFTER_SECS=3600                # Cleanup window for cached audio
+VOICE_IDLE_TIMEOUT_SECS=300                    # Auto-leave voice after idle
+
+# --- Command registration ---
+REGISTER_COMMANDS=false                        # Set true only when commands change
+DEV_GUILD_ID=YOUR_DEV_GUILD_ID_HERE            # Optional: faster dev registration
+```
 
 ### 3. Database Setup
 
@@ -157,9 +232,9 @@ Use `/agent` for requests that require multiple actions.
 
 For deeper insights into the project, explore the `docs/` directory:
 
-- [Requirements](file:///home/lkless/project/code/mascord/docs/REQUIREMENTS.md): Detailed functional and non-functional goals.
-- [Architecture](file:///home/lkless/project/code/mascord/docs/ARCHITECTURE.md): System design, component overview, and data flow.
-- [Component Docs](file:///home/lkless/project/code/mascord/docs/COMPONENT_BOT_DOCS.md): Deep dives into specific modules (Bot, LLM, RAG, Voice, Tools).
+- [Requirements](docs/REQUIREMENTS.md): Detailed functional and non-functional goals.
+- [Architecture](docs/ARCHITECTURE.md): System design, component overview, and data flow.
+- [Component Docs](docs/COMPONENT_BOT_DOCS.md): Deep dives into specific modules (Bot, LLM, RAG, Voice, Tools).
 
 ---
 

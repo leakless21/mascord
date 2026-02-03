@@ -1,7 +1,7 @@
+use async_trait::async_trait;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use serde_json::Value;
-use async_trait::async_trait;
 
 pub mod builtin;
 
@@ -10,11 +10,20 @@ pub trait Tool: Send + Sync {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
     fn parameters_schema(&self) -> Value;
+    fn requires_confirmation(&self) -> bool {
+        false
+    }
     async fn execute(&self, params: Value) -> anyhow::Result<Value>;
 }
 
 pub struct ToolRegistry {
     tools: HashMap<String, Arc<dyn Tool>>,
+}
+
+impl Default for ToolRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ToolRegistry {
@@ -37,15 +46,18 @@ impl ToolRegistry {
     }
 
     pub fn get_definitions(&self) -> Vec<Value> {
-        self.tools.values().map(|tool| {
-            serde_json::json!({
-                "type": "function",
-                "function": {
-                    "name": tool.name(),
-                    "description": tool.description(),
-                    "parameters": tool.parameters_schema()
-                }
+        self.tools
+            .values()
+            .map(|tool| {
+                serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": tool.name(),
+                        "description": tool.description(),
+                        "parameters": tool.parameters_schema()
+                    }
+                })
             })
-        }).collect()
+            .collect()
     }
 }

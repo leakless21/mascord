@@ -1,7 +1,7 @@
-use crate::{Context, Error};
 use crate::rag::SearchFilter;
-use chrono::{Utc, Duration};
-use tracing::info;
+use crate::{Context, Error};
+use chrono::{Duration, Utc};
+use tracing::{info, warn};
 
 /// Search for messages in history
 #[poise::command(slash_command)]
@@ -16,11 +16,19 @@ pub async fn search(
     let db = &ctx.data().db;
     let llm_client = &ctx.data().llm_client;
 
-    // Generate embedding for query
-    let embedding = llm_client.get_embeddings(&query).await?;
+    // Generate embedding for query (fallback to keyword search if embeddings are unavailable)
+    let embedding = match llm_client.get_embeddings(&query).await {
+        Ok(v) => v,
+        Err(e) => {
+            warn!(
+                "Embedding generation failed for /search (falling back to keyword search): {}",
+                e
+            );
+            Vec::new()
+        }
+    };
 
-    let mut filter = SearchFilter::default()
-        .with_limit(5);
+    let mut filter = SearchFilter::default().with_limit(5);
 
     if let Some(d) = days {
         let from_date = Utc::now() - Duration::days(d);
@@ -35,7 +43,11 @@ pub async fn search(
     }
 
     // Perform search (Implementation in Database)
-    info!("Search command received: '{}' for channel {}", query, filter.channels.first().map(|s| s.as_str()).unwrap_or("all"));
+    info!(
+        "Search command received: '{}' for channel {}",
+        query,
+        filter.channels.first().map(|s| s.as_str()).unwrap_or("all")
+    );
     let results = db.search_messages(&query, embedding, filter).await?;
 
     if results.is_empty() {
@@ -43,11 +55,21 @@ pub async fn search(
         ctx.say("No relevant messages found.").await?;
         return Ok(());
     }
-    info!("Found {} search results for query: '{}'", results.len(), query);
+    info!(
+        "Found {} search results for query: '{}'",
+        results.len(),
+        query
+    );
 
     let mut response = String::from("**Search Results:**\n");
     for (i, msg) in results.iter().enumerate() {
-        response.push_str(&format!("{}. [{}] <@{}>: {}\n", i+1, msg.timestamp, msg.user_id, msg.content));
+        response.push_str(&format!(
+            "{}. [{}] <@{}>: {}\n",
+            i + 1,
+            msg.timestamp,
+            msg.user_id,
+            msg.content
+        ));
     }
 
     ctx.say(response).await?;

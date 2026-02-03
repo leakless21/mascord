@@ -16,3 +16,6 @@ Uses `async-openai` crate configured with a custom `api_base`.
 - **URL Format**: The `api_base` must include the version prefix (e.g., `/v1`) as it is used directly by the client to construct full endpoint paths (e.g., `url + /chat/completions`). Trailing slashes should be avoided.
 - **Resilience**: 120s chat timeout, 30s embedding timeout.
 - **Agent**: 10-step iteration limit with improved logging and user feedback.
+
+## Platform Notes
+- This component is OS-agnostic and only requires outbound HTTP access to the configured LLM endpoint.

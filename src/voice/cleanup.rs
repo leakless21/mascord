@@ -1,12 +1,15 @@
 use std::fs;
 use std::time::{Duration, SystemTime};
 use tokio::time::interval;
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 pub async fn start_cleanup_task(download_dir: String, max_age_secs: u64) {
-    info!("Starting YouTube temporary file cleanup task for directory: {}", download_dir);
+    info!(
+        "Starting YouTube temporary file cleanup task for directory: {}",
+        download_dir
+    );
     let mut ticker = interval(Duration::from_secs(300)); // Check every 5 min
-    
+
     loop {
         ticker.tick().await;
         if let Err(e) = cleanup_old_files(&download_dir, max_age_secs) {
@@ -23,7 +26,7 @@ fn cleanup_old_files(dir: &str, max_age_secs: u64) -> anyhow::Result<()> {
     }
 
     let threshold = SystemTime::now() - Duration::from_secs(max_age_secs);
-    
+
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         if let Ok(metadata) = entry.metadata() {

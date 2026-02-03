@@ -1,13 +1,17 @@
 use crate::tools::Tool;
 use async_trait::async_trait;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 pub struct PlayMusicTool;
 
 #[async_trait]
 impl Tool for PlayMusicTool {
-    fn name(&self) -> &str { "play_music" }
-    fn description(&self) -> &str { "Play music from a YouTube URL or search query" }
+    fn name(&self) -> &str {
+        "play_music"
+    }
+    fn description(&self) -> &str {
+        "Play music from a YouTube URL or search query"
+    }
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",

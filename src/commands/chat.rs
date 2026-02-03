@@ -1,32 +1,35 @@
-use crate::{Context, Error};
 use crate::config::DISCORD_EMBED_LIMIT;
 use crate::context::ConversationContext;
+use crate::llm::confirm::ToolConfirmationContext;
+use crate::{Context, Error};
 use async_openai::types::{
-    ChatCompletionRequestSystemMessageArgs, 
-    ChatCompletionRequestUserMessageArgs, 
-    ChatCompletionRequestMessage
+    ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
+    ChatCompletionRequestUserMessageArgs,
 };
 use poise::serenity_prelude::{CreateEmbed, CreateEmbedFooter};
-use tracing::{info, error};
+use tracing::{error, info};
 
 /// Chat with the all-in-one assistant
 #[poise::command(slash_command)]
 pub async fn chat(
     ctx: Context<'_>,
-    #[description = "Your message to the assistant"]
-    message: String,
+    #[description = "Your message to the assistant"] message: String,
 ) -> Result<(), Error> {
-    info!("Chat command received from {} in channel {}: {}", ctx.author().name, ctx.channel_id(), message);
+    info!(
+        "Chat command received from {} in channel {}: {}",
+        ctx.author().name,
+        ctx.channel_id(),
+        message
+    );
     ctx.defer().await?;
 
     // Build messages with configurable system prompt
-    let mut messages: Vec<ChatCompletionRequestMessage> = vec![
-        ChatCompletionRequestSystemMessageArgs::default()
+    let mut messages: Vec<ChatCompletionRequestMessage> =
+        vec![ChatCompletionRequestSystemMessageArgs::default()
             .content(ctx.data().config.system_prompt.clone())
             .build()?
-            .into(),
-    ];
-    
+            .into()];
+
     // Inject channel context (recent messages)
     let context_messages = ConversationContext::get_context_for_channel(
         &ctx.data().cache,
@@ -37,7 +40,7 @@ pub async fn chat(
         Some(ctx.data().bot_id),
     );
     messages.extend(context_messages);
-    
+
     // Add the current user message
     messages.push(
         ChatCompletionRequestUserMessageArgs::default()
@@ -49,18 +52,32 @@ pub async fn chat(
     let query_msg = ctx.say("Thinking...").await?;
 
     let agent = crate::llm::agent::Agent::new(ctx.data());
-    let response = match agent.run(messages, 10).await {
+    let confirm_ctx = ToolConfirmationContext::new(
+        ctx.serenity_context(),
+        ctx.channel_id(),
+        ctx.author().id,
+        std::time::Duration::from_secs(ctx.data().config.agent_confirm_timeout_secs),
+    );
+    let response = match agent.run_with_confirmation(confirm_ctx, messages, 10).await {
         Ok(r) => r,
         Err(e) => {
-            error!("Assistant error in /chat for channel {}: {}", ctx.channel_id(), e);
+            error!(
+                "Assistant error in /chat for channel {}: {}",
+                ctx.channel_id(),
+                e
+            );
             format!("❌ Assistant Error: {}", e)
         }
     };
 
     // Handle long responses with embeds
     send_response(&ctx, &response).await?;
-    info!("Assistant response sent to {} in channel {}", ctx.author().name, ctx.channel_id());
-    
+    info!(
+        "Assistant response sent to {} in channel {}",
+        ctx.author().name,
+        ctx.channel_id()
+    );
+
     // Attempt to delete the "Thinking..." message to clean up
     if let Ok(m) = query_msg.into_message().await {
         let _ = m.delete(ctx).await;
@@ -77,7 +94,7 @@ pub async fn send_response(ctx: &Context<'_>, content: &str) -> Result<(), Error
             .description(content)
             .color(0x5865F2)
             .footer(CreateEmbedFooter::new("Powered by llama.cpp"));
-        
+
         ctx.send(poise::CreateReply::default().embed(embed)).await?;
     } else {
         // Split into multiple embeds if extremely long
@@ -86,13 +103,13 @@ pub async fn send_response(ctx: &Context<'_>, content: &str) -> Result<(), Error
             .chunks(DISCORD_EMBED_LIMIT - 100)
             .map(|c| std::str::from_utf8(c).unwrap_or("..."))
             .collect();
-        
+
         for (i, chunk) in chunks.iter().enumerate() {
             let embed = CreateEmbed::new()
                 .title(format!("🤖 Response (Part {}/{})", i + 1, chunks.len()))
                 .description(*chunk)
                 .color(0x5865F2);
-            
+
             ctx.send(poise::CreateReply::default().embed(embed)).await?;
         }
     }
@@ -119,7 +136,7 @@ pub async fn send_embed_reply(
             .description(content)
             .color(0x5865F2)
             .footer(CreateEmbedFooter::new("Powered by llama.cpp"));
-        
+
         channel_id.send_message(http, message.embed(embed)).await?;
     } else {
         let chunks: Vec<&str> = content
@@ -127,14 +144,16 @@ pub async fn send_embed_reply(
             .chunks(DISCORD_EMBED_LIMIT - 100)
             .map(|c| std::str::from_utf8(c).unwrap_or("..."))
             .collect();
-        
+
         for (i, chunk) in chunks.iter().enumerate() {
             let embed = CreateEmbed::new()
                 .title(format!("🤖 Response (Part {}/{})", i + 1, chunks.len()))
                 .description(*chunk)
                 .color(0x5865F2);
-            
-            channel_id.send_message(&http, message.clone().embed(embed)).await?;
+
+            channel_id
+                .send_message(&http, message.clone().embed(embed))
+                .await?;
         }
     }
     Ok(())

@@ -1,6 +1,7 @@
 # Gap Analysis: Mascord Discord Bot
 
 This document tracks identified gaps, edge cases, and potential issues requiring remediation.
+Last reviewed: February 3, 2026 (hybrid retrieval, milestone extraction, retention override documented; no new runtime gaps added).
 
 ## Legend
 
@@ -191,6 +192,17 @@ This document tracks identified gaps, edge cases, and potential issues requiring
 **Description**: `Config` derives `Debug` which may print API keys in logs.
 **Impact**: Credential exposure in debug logs.
 **Resolution**: Implement custom `Debug` that redacts sensitive fields.
+
+---
+
+## 8. Platform Support
+
+### GAP-021: macOS Support Not Documented or Validated 🟡
+
+**Status**: Open
+**Description**: macOS is not listed as a supported platform, and there is no CI or documented validation of macOS builds/runtime behavior.
+**Impact**: macOS users may hit build or runtime issues without clear guidance; support expectations are unclear.
+**Resolution**: Document macOS support and prerequisites, and add CI (or a manual test checklist) to validate macOS builds and basic runtime.
 
 ---
 

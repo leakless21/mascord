@@ -1,9 +1,9 @@
 use crate::{Context, Error};
-use songbird::input::YoutubeDl;
 use poise::serenity_prelude::{
-    CreateEmbed, CreateButton, ButtonStyle, CreateActionRow,
-    CreateInteractionResponse, CreateInteractionResponseMessage
+    ButtonStyle, CreateActionRow, CreateButton, CreateEmbed, CreateInteractionResponse,
+    CreateInteractionResponseMessage,
 };
+use songbird::input::{Compose, YoutubeDl};
 use tracing::{info, warn};
 // use poise::serenity_prelude as serenity;
 
@@ -20,26 +20,39 @@ pub async fn join(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Helper function to join the user's voice channel
-async fn join_voice_channel_internal(ctx: Context<'_>) -> Result<serenity::model::id::ChannelId, Error> {
-    let guild_id = ctx.guild_id().ok_or("This command must be used in a server")?;
+async fn join_voice_channel_internal(
+    ctx: Context<'_>,
+) -> Result<serenity::model::id::ChannelId, Error> {
+    let guild_id = ctx
+        .guild_id()
+        .ok_or("This command must be used in a server")?;
     let channel_id = {
         let guild = ctx.guild().ok_or("Could not access guild")?;
-        guild.voice_states
+        guild
+            .voice_states
             .get(&ctx.author().id)
             .and_then(|vs| vs.channel_id)
             .ok_or("You must be in a voice channel to use this command")?
     };
-    
-    info!("Attempting to join voice channel {} for guild {}", channel_id, guild_id);
 
-    let manager = songbird::get(ctx.serenity_context()).await
-        .ok_or("Songbird Voice client not initialized")?.clone();
+    info!(
+        "Attempting to join voice channel {} for guild {}",
+        channel_id, guild_id
+    );
+
+    let manager = songbird::get(ctx.serenity_context())
+        .await
+        .ok_or("Songbird Voice client not initialized")?
+        .clone();
 
     match manager.join(guild_id, channel_id).await {
         Ok(handler_lock) => {
-            info!("Successfully joined voice channel {} for guild {}", channel_id, guild_id);
+            info!(
+                "Successfully joined voice channel {} for guild {}",
+                channel_id, guild_id
+            );
             let mut handler = handler_lock.lock().await;
-            
+
             // Add idle handler to leave after 5 mins of no tracks
             handler.add_global_event(
                 songbird::Event::Track(songbird::TrackEvent::End),
@@ -49,12 +62,10 @@ async fn join_voice_channel_internal(ctx: Context<'_>) -> Result<serenity::model
                     idle_timeout_secs: ctx.data().config.voice_idle_timeout_secs,
                 },
             );
-            
+
             Ok(channel_id)
         }
-        Err(e) => {
-            Err(format!("❌ Failed to join voice channel: {}", e).into())
-        }
+        Err(e) => Err(format!("❌ Failed to join voice channel: {}", e).into()),
     }
 }
 
@@ -70,29 +81,71 @@ pub async fn play(
 ) -> Result<(), Error> {
     ctx.defer().await?;
 
-    let guild_id = ctx.guild_id().ok_or("This command must be used in a server")?;
-    let manager = songbird::get(ctx.serenity_context()).await
-        .ok_or("Songbird Voice client not initialized")?.clone();
+    let guild_id = ctx
+        .guild_id()
+        .ok_or("This command must be used in a server")?;
+    let manager = songbird::get(ctx.serenity_context())
+        .await
+        .ok_or("Songbird Voice client not initialized")?
+        .clone();
 
     let handler_lock = if let Some(hl) = manager.get(guild_id) {
         hl
     } else {
-        info!("Not in a voice channel, attempting auto-join for guild {}", guild_id);
+        info!(
+            "Not in a voice channel, attempting auto-join for guild {}",
+            guild_id
+        );
         join_voice_channel_internal(ctx).await?;
-        manager.get(guild_id).ok_or("Failed to retrieve handler after join")?
+        manager
+            .get(guild_id)
+            .ok_or("Failed to retrieve handler after join")?
     };
 
     let mut handler = handler_lock.lock().await;
 
-    if let Some(cookies) = &ctx.data().config.youtube_cookies {
-        if std::path::Path::new(cookies).exists() {
-            std::env::set_var("YTDL_ARGS", format!("--cookies {}", cookies));
-        } else {
-            warn!("YOUTUBE_COOKIES set but file not found at '{}'; skipping cookies", cookies);
-        }
+    let cookies_path = ctx.data().config.youtube_cookies.clone();
+    let cookies_ok = cookies_path
+        .as_deref()
+        .is_some_and(|p| std::path::Path::new(p).exists());
+
+    if cookies_path.is_some() && !cookies_ok {
+        warn!(
+            "YOUTUBE_COOKIES set but file not found at '{:?}'; proceeding without cookies",
+            cookies_path
+        );
     }
 
-    let source = YoutubeDl::new(ctx.data().http_client.clone(), url.clone());
+    let is_url = url.starts_with("http://") || url.starts_with("https://");
+    let mut source = if is_url {
+        YoutubeDl::new(ctx.data().http_client.clone(), url.clone())
+    } else {
+        YoutubeDl::new_search(ctx.data().http_client.clone(), url.clone())
+    };
+
+    // Pass args directly to yt-dlp via Songbird.
+    let mut args = vec!["--no-playlist".to_string()];
+    if let (Some(path), true) = (cookies_path.as_ref(), cookies_ok) {
+        args.push("--cookies".to_string());
+        args.push(path.clone());
+    }
+    source = source.user_args(args);
+
+    // Preflight to surface age restriction errors as a user-visible command failure.
+    if let Err(e) = source.aux_metadata().await {
+        let msg = e.to_string().to_lowercase();
+        let looks_age_restricted = msg.contains("confirm your age")
+            || msg.contains("age-restricted")
+            || msg.contains("sign in to confirm your age")
+            || msg.contains("age restricted");
+
+        if looks_age_restricted && !cookies_ok {
+            return Err("❌ This video appears to be age-restricted. Configure `YOUTUBE_COOKIES` with a valid cookies file to play age-restricted videos.".into());
+        }
+
+        return Err(format!("❌ Failed to fetch audio metadata: {}", e).into());
+    }
+
     info!("Queueing audio for guild {}: {}", guild_id, url);
     handler.enqueue_input(source.into()).await;
 
@@ -100,7 +153,7 @@ pub async fn play(
         .title("🎵 Added to Queue")
         .description(format!("```{}```", truncate(&url, 100)))
         .color(0x57F287);
-    
+
     ctx.send(poise::CreateReply::default().embed(embed)).await?;
 
     Ok(())
@@ -109,14 +162,17 @@ pub async fn play(
 /// Skip the current song
 #[poise::command(slash_command, guild_only)]
 pub async fn skip(ctx: Context<'_>) -> Result<(), Error> {
-    let guild_id = ctx.guild_id().ok_or("This command must be used in a server")?;
-    let manager = songbird::get(ctx.serenity_context()).await
+    let guild_id = ctx
+        .guild_id()
+        .ok_or("This command must be used in a server")?;
+    let manager = songbird::get(ctx.serenity_context())
+        .await
         .ok_or("Songbird Voice client not initialized")?;
 
     if let Some(handler_lock) = manager.get(guild_id) {
         let handler = handler_lock.lock().await;
         let queue = handler.queue();
-        
+
         if queue.is_empty() {
             ctx.say("📭 Queue is empty").await?;
         } else {
@@ -134,12 +190,18 @@ pub async fn skip(ctx: Context<'_>) -> Result<(), Error> {
 /// Stop playback and leave
 #[poise::command(slash_command, guild_only)]
 pub async fn leave(ctx: Context<'_>) -> Result<(), Error> {
-    let guild_id = ctx.guild_id().ok_or("This command must be used in a server")?;
-    let manager = songbird::get(ctx.serenity_context()).await
+    let guild_id = ctx
+        .guild_id()
+        .ok_or("This command must be used in a server")?;
+    let manager = songbird::get(ctx.serenity_context())
+        .await
         .ok_or("Songbird Voice client not initialized")?;
 
     if manager.get(guild_id).is_some() {
-        info!("Leave command: Removing voice handler for guild {}", guild_id);
+        info!(
+            "Leave command: Removing voice handler for guild {}",
+            guild_id
+        );
         manager.remove(guild_id).await?;
         ctx.say("👋 Left voice channel").await?;
     } else {
@@ -152,8 +214,11 @@ pub async fn leave(ctx: Context<'_>) -> Result<(), Error> {
 /// Show the current queue
 #[poise::command(slash_command, guild_only)]
 pub async fn queue(ctx: Context<'_>) -> Result<(), Error> {
-    let guild_id = ctx.guild_id().ok_or("This command must be used in a server")?;
-    let manager = songbird::get(ctx.serenity_context()).await
+    let guild_id = ctx
+        .guild_id()
+        .ok_or("This command must be used in a server")?;
+    let manager = songbird::get(ctx.serenity_context())
+        .await
         .ok_or("Songbird Voice client not initialized")?;
 
     if let Some(handler_lock) = manager.get(guild_id) {
@@ -161,7 +226,7 @@ pub async fn queue(ctx: Context<'_>) -> Result<(), Error> {
         let queue = handler.queue();
         let current = queue.current();
         let upcoming = queue.current_queue();
-        
+
         if upcoming.is_empty() && current.is_none() {
             ctx.say("📭 Queue is empty").await?;
             return Ok(());
@@ -173,107 +238,130 @@ pub async fn queue(ctx: Context<'_>) -> Result<(), Error> {
         // Pagination state
         let mut page = 0;
         let items_per_page = 10;
-        let mut total_pages = if upcoming.is_empty() { 1 } else { (upcoming.len() as f32 / items_per_page as f32).ceil() as usize };
+        let mut total_pages = if upcoming.is_empty() {
+            1
+        } else {
+            (upcoming.len() as f32 / items_per_page as f32).ceil() as usize
+        };
 
         // Initial embed construction
         let start = page * items_per_page;
         let end = (start + items_per_page).min(upcoming.len());
         let page_tracks = &upcoming[start..end];
 
-            let mut description = String::new();
-            
-            // Current Track
-            if let Some(_track) = &current {
-                description.push_str("**Now Playing:**\n🎶 Current Track\n\n");
+        let mut description = String::new();
+
+        // Current Track
+        if let Some(_track) = &current {
+            description.push_str("**Now Playing:**\n🎶 Current Track\n\n");
+        }
+
+        // Up Next
+        if !page_tracks.is_empty() {
+            description.push_str("**Up Next:**\n");
+            for (i, _track) in page_tracks.iter().enumerate() {
+                description.push_str(&format!("{}. Track {}\n", start + i + 1, start + i + 1));
             }
+        } else {
+            description.push_str("*End of queue*");
+        }
 
-            // Up Next
-            if !page_tracks.is_empty() {
-                description.push_str("**Up Next:**\n");
-                for (i, _track) in page_tracks.iter().enumerate() {
-                    description.push_str(&format!("{}. Track {}\n", start + i + 1, start + i + 1));
-                }
-            } else {
-                 description.push_str("*End of queue*");
-            }
+        let embed = CreateEmbed::new()
+            .title("🎶 Music Queue")
+            .description(description)
+            .footer(poise::serenity_prelude::CreateEmbedFooter::new(format!(
+                "Page {}/{}",
+                page + 1,
+                total_pages
+            )))
+            .color(0x5865F2);
 
-            let embed = CreateEmbed::new()
-                .title("🎶 Music Queue")
-                .description(description)
-                .footer(poise::serenity_prelude::CreateEmbedFooter::new(format!("Page {}/{}", page + 1, total_pages)))
-                .color(0x5865F2);
+        // Buttons
+        let prev_btn = CreateButton::new("prev")
+            .emoji('⬅')
+            .style(ButtonStyle::Secondary)
+            .disabled(page == 0);
 
-            // Buttons
-            let prev_btn = CreateButton::new("prev")
-                .emoji('⬅')
-                .style(ButtonStyle::Secondary)
-                .disabled(page == 0);
-            
-            let next_btn = CreateButton::new("next")
-                .emoji('➡')
-                .style(ButtonStyle::Secondary)
-                .disabled(page >= total_pages - 1);
-                
-            let pause_btn = CreateButton::new("pause")
-                .emoji('⏯')
-                .style(ButtonStyle::Primary);
-                
-            let skip_btn = CreateButton::new("skip")
-                .emoji('⏭')
-                .style(ButtonStyle::Success);
-                
-            let stop_btn = CreateButton::new("stop")
-                .emoji('⏹')
-                .style(ButtonStyle::Danger);
+        let next_btn = CreateButton::new("next")
+            .emoji('➡')
+            .style(ButtonStyle::Secondary)
+            .disabled(page >= total_pages - 1);
 
-            let row = CreateActionRow::Buttons(vec![prev_btn, pause_btn.clone(), stop_btn.clone(), skip_btn.clone(), next_btn]);
+        let pause_btn = CreateButton::new("pause")
+            .emoji('⏯')
+            .style(ButtonStyle::Primary);
+
+        let skip_btn = CreateButton::new("skip")
+            .emoji('⏭')
+            .style(ButtonStyle::Success);
+
+        let stop_btn = CreateButton::new("stop")
+            .emoji('⏹')
+            .style(ButtonStyle::Danger);
+
+        let row = CreateActionRow::Buttons(vec![
+            prev_btn,
+            pause_btn.clone(),
+            stop_btn.clone(),
+            skip_btn.clone(),
+            next_btn,
+        ]);
 
         // Initial send
-        let reply = ctx.send(poise::CreateReply::default().embed(embed.clone()).components(vec![row.clone()])).await?;
+        let reply = ctx
+            .send(
+                poise::CreateReply::default()
+                    .embed(embed.clone())
+                    .components(vec![row.clone()]),
+            )
+            .await?;
         let message = reply.into_message().await?;
 
         // Interaction loop
         while let Some(interaction) = message
             .await_component_interaction(ctx)
             .timeout(std::time::Duration::from_secs(60 * 5)) // 5 minute timeout
-            .await 
+            .await
         {
             let custom_id = &interaction.data.custom_id;
-            
+
             // Handle actions that need the mock_handler lock
             if ["pause", "skip", "stop"].contains(&custom_id.as_str()) {
                 if let Some(handler_lock) = manager.get(guild_id) {
                     let mut handler = handler_lock.lock().await;
                     let queue = handler.queue();
-                    
+
                     match custom_id.as_str() {
                         "pause" => {
-                            let _ = queue.pause(); // Toggle? Songbird pause is explicit. 
-                            // Check if paused? queue.modify_queue? 
-                            // For simplicity, let's just toggle or use two buttons. 
-                            // Since we have one button, let's assume it pauses implementation issues.
-                            // Actually, let's just skip "pause" logic refinement for now and focus on "skip".
-                            // Songbird queue.pause() pauses current track. queue.resume() resumes.
-                            // We need to know state.
-                            // For now, let's implement skip and stop reliably.
+                            let _ = queue.pause(); // Toggle? Songbird pause is explicit.
+                                                   // Check if paused? queue.modify_queue?
+                                                   // For simplicity, let's just toggle or use two buttons.
+                                                   // Since we have one button, let's assume it pauses implementation issues.
+                                                   // Actually, let's just skip "pause" logic refinement for now and focus on "skip".
+                                                   // Songbird queue.pause() pauses current track. queue.resume() resumes.
+                                                   // We need to know state.
+                                                   // For now, let's implement skip and stop reliably.
                             let _ = queue.pause(); // Placeholder
-                        },
+                        }
                         "skip" => {
                             let _ = queue.skip();
-                        },
+                        }
                         "stop" => {
-                            let _ = queue.stop();
+                            queue.stop();
                             handler.leave().await.ok();
-                            let _ = interaction.create_response(ctx.serenity_context(), 
-                                CreateInteractionResponse::UpdateMessage(
-                                    CreateInteractionResponseMessage::new()
-                                        .content("Stopped playback and left channel.")
-                                        .components(vec![])
-                                        .embeds(vec![])
+                            let _ = interaction
+                                .create_response(
+                                    ctx.serenity_context(),
+                                    CreateInteractionResponse::UpdateMessage(
+                                        CreateInteractionResponseMessage::new()
+                                            .content("Stopped playback and left channel.")
+                                            .components(vec![])
+                                            .embeds(vec![]),
+                                    ),
                                 )
-                            ).await;
+                                .await;
                             return Ok(());
-                        },
+                        }
                         _ => {}
                     }
                 }
@@ -286,22 +374,32 @@ pub async fn queue(ctx: Context<'_>) -> Result<(), Error> {
             // Acknowledge and update
             // Re-render embed with new page
             // (Duplicated logic from above - ideally refactor into helper, but inline for now)
-            
+
             // Re-fetch queue state for display update
             let mut new_description = String::new();
-             if let Some(handler_lock) = manager.get(guild_id) {
+            if let Some(handler_lock) = manager.get(guild_id) {
                 let handler = handler_lock.lock().await;
                 let queue = handler.queue();
                 let current = queue.current();
                 let upcoming = queue.current_queue();
-                
+
                 // Recalculate pages
-                 total_pages = if upcoming.is_empty() { 1 } else { (upcoming.len() as f32 / items_per_page as f32).ceil() as usize };
-                 if page >= total_pages { page = total_pages.saturating_sub(1); }
+                total_pages = if upcoming.is_empty() {
+                    1
+                } else {
+                    (upcoming.len() as f32 / items_per_page as f32).ceil() as usize
+                };
+                if page >= total_pages {
+                    page = total_pages.saturating_sub(1);
+                }
 
                 let start = page * items_per_page;
                 let end = (start + items_per_page).min(upcoming.len());
-                let page_tracks = if start < upcoming.len() { &upcoming[start..end] } else { &[] };
+                let page_tracks = if start < upcoming.len() {
+                    &upcoming[start..end]
+                } else {
+                    &[]
+                };
 
                 if let Some(_track) = &current {
                     new_description.push_str("**Now Playing:**\n🎶 Current Track\n\n");
@@ -310,41 +408,57 @@ pub async fn queue(ctx: Context<'_>) -> Result<(), Error> {
                 if !page_tracks.is_empty() {
                     new_description.push_str("**Up Next:**\n");
                     for (i, _track) in page_tracks.iter().enumerate() {
-                        new_description.push_str(&format!("{}. Track {}\n", start + i + 1, start + i + 1));
+                        new_description.push_str(&format!(
+                            "{}. Track {}\n",
+                            start + i + 1,
+                            start + i + 1
+                        ));
                     }
                 } else {
-                     new_description.push_str("*End of queue*");
+                    new_description.push_str("*End of queue*");
                 }
             }
-            
+
             let new_embed = CreateEmbed::new()
                 .title("🎶 Music Queue")
                 .description(new_description)
-                .footer(poise::serenity_prelude::CreateEmbedFooter::new(format!("Page {}/{}", page + 1, total_pages)))
+                .footer(poise::serenity_prelude::CreateEmbedFooter::new(format!(
+                    "Page {}/{}",
+                    page + 1,
+                    total_pages
+                )))
                 .color(0x5865F2);
-                
+
             // Update buttons state
             let prev_btn = CreateButton::new("prev")
                 .emoji('⬅')
                 .style(ButtonStyle::Secondary)
                 .disabled(page == 0);
-            
+
             let next_btn = CreateButton::new("next")
                 .emoji('➡')
                 .style(ButtonStyle::Secondary)
                 .disabled(page >= total_pages.saturating_sub(1));
-            
-             let row = CreateActionRow::Buttons(vec![prev_btn, pause_btn.clone(), stop_btn.clone(), skip_btn.clone(), next_btn]);
-            
-            let _ = interaction.create_response(ctx.serenity_context(), 
-                CreateInteractionResponse::UpdateMessage(
-                    CreateInteractionResponseMessage::new()
-                        .embed(new_embed)
-                        .components(vec![row])
+
+            let row = CreateActionRow::Buttons(vec![
+                prev_btn,
+                pause_btn.clone(),
+                stop_btn.clone(),
+                skip_btn.clone(),
+                next_btn,
+            ]);
+
+            let _ = interaction
+                .create_response(
+                    ctx.serenity_context(),
+                    CreateInteractionResponse::UpdateMessage(
+                        CreateInteractionResponseMessage::new()
+                            .embed(new_embed)
+                            .components(vec![row]),
+                    ),
                 )
-            ).await;
+                .await;
         }
-        
     } else {
         ctx.say("❌ I'm not in a voice channel").await?;
     }

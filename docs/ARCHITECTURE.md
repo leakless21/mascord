@@ -29,7 +29,8 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 ### 4. RAG Engine
 
 - **Responsibility**: Message indexing, similarity search, prompt augmentation.
-- **Storage**: SQLite (+ `sqlite-vec`).
+- **Storage**: SQLite with in-process Rust vector scoring (optional `sqlite-vec` acceleration).
+- **Retrieval**: Hybrid merge of vector + keyword results with a light recency boost to prefer newer context.
 - **Compute**: Moderate (vector arithmetic).
 - **Interface**: `src/rag/mod.rs`.
 - **Dependencies**: SQLite, `llama.cpp` (for embeddings), optional `EMBEDDING_API_KEY`.
@@ -56,11 +57,12 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 ### 8. Context Manager (Three-Tier Memory)
 
 - **Responsibility**: Orchestrating the bot's functional memory across three layers:
-    - **Short-Term**: Last 50 verbatim messages (LruCache).
+    - **Short-Term**: Last 50 verbatim messages (LruCache). Set `CONTEXT_RETENTION_HOURS=0` to disable the time filter and rely on the message limit only.
     - **Working Memory**: Condensed summaries of older conversations (Working Context).
     - **Long-Term Memory**: Indexed message history for tool-based retrieval (RAG).
 - **Interface**: `src/context.rs`.
 - **Dependencies**: `src/cache.rs`, `src/db/mod.rs`, `src/summarize.rs`.
+- **Retention**: Long-term memory is retained via `LONG_TERM_RETENTION_DAYS` (separate from short-term `CONTEXT_RETENTION_HOURS`). Set to `0` to disable long-term cleanup.
 
 ### 9. Summarization Service
 
@@ -68,6 +70,7 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 - **Compute**: Low (triggered every 4 hours, requires LLM call).
 - **Interface**: `src/summarize.rs`.
 - **Dependencies**: `src/llm/client.rs`, `src/db/mod.rs`.
+- **Policy**: Rolling summary with hard size caps, periodic refresh, and milestone anchors extracted from summaries to prevent long-term drift.
 
 ### 10. Reply Handler
 
@@ -89,6 +92,12 @@ Mascord uses a tiered configuration system:
 3. **.env File**: Local overrides for development/deployment convenience.
 
 The `Config` struct in `src/config.rs` is responsible for merging these sources using `dotenvy` and `std::env`.
+
+## Platform & Runtime Dependencies
+
+- **Target platforms**: macOS and Linux. The codebase is OS-agnostic Rust with no platform-specific modules.
+- **External binaries**: `yt-dlp` and `ffmpeg` must be installed and available on `PATH` for voice playback.
+- **MCP servers**: Optional, but `npx`-based servers require Node.js on the host OS.
 
 ## Data Storage
 

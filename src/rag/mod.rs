@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct SearchFilter {
     pub channels: Vec<String>,
     pub from_date: Option<DateTime<Utc>>,

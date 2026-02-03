@@ -18,15 +18,17 @@
 - Integrated with local `llama.cpp` server via OpenAI-compatible API.
 - Conversation context maintenance with Three-Tier Architecture:
     - **Short-Term**: Verbatim recent history.
-    - **Working Memory**: Proactive summarization of older interactions.
+    - **Working Memory**: Rolling summaries of older interactions with hard size caps, periodic refresh, and milestone anchors (durable facts/decisions).
     - **Long-Term**: On-demand search of full history.
+- **Context Retention Modes**: `CONTEXT_RETENTION_HOURS=0` disables time filtering for short-term memory (count-only).
 - Streaming responses (if supported by Discord/Framework).
 
 ### 3. RAG (Retrieval-Augmented Generation)
 
 - Store Discord messages in a local SQLite database.
 - Generate embeddings using `llama.cpp` embedding endpoint.
-- Vector search using `sqlite-vec`.
+- Vector search using SQLite-stored embeddings with in-process Rust similarity scoring; `sqlite-vec` remains an optional acceleration path.
+- Hybrid retrieval: merge vector + keyword results with a light recency boost to favor recent context.
 - Access controls:
   - Filter by channel(s).
   - Filter by date range.
@@ -91,3 +93,9 @@
 - Graceful handling of `llama.cpp` server downtime.
 - Robust error handling for `yt-dlp` failures.
 - Database integrity for message history.
+
+### 5. Platform Support
+
+- The bot must build and run on macOS (Apple Silicon and Intel) and Linux with the documented prerequisites installed.
+- External runtime dependencies (`yt-dlp`, `ffmpeg`, optional Node.js for MCP servers) must be documented with OS-specific install guidance.
+- Avoid OS-specific code paths unless explicitly gated and documented.

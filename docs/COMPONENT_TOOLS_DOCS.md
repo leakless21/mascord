@@ -42,3 +42,7 @@ The bot owner can manage MCP servers directly from Discord:
 - `/mcp remove`: Remove a server and disconnect its tools.
 
 Supports `stdio` transport for running local scripts/binaries as tool providers.
+
+## Platform Notes
+- MCP tools may require external runtimes (for example, Node.js when using `npx`-based servers).
+- Ensure tool binaries are available on the host OS `PATH` for macOS and Linux deployments.

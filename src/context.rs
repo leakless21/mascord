@@ -1,14 +1,13 @@
 //! Conversation context management for persistent LLM memory
-//! 
+//!
 //! Provides per-channel context retrieval for injecting recent message history
 //! into LLM conversations.
 
 use async_openai::types::{
-    ChatCompletionRequestMessage,
+    ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage,
     ChatCompletionRequestUserMessageArgs,
-    ChatCompletionRequestAssistantMessageArgs,
 };
-use chrono::{Utc, Duration};
+use chrono::{Duration, Utc};
 use serenity::model::channel::Message;
 use serenity::model::id::ChannelId;
 
@@ -22,12 +21,12 @@ pub struct ConversationContext;
 
 impl ConversationContext {
     /// Retrieves recent channel messages and formats them for LLM context
-    /// 
+    ///
     /// Messages are filtered by:
     /// - Channel ID
     /// - Retention period (config.context_retention_hours)
     /// - Limit (config.context_message_limit)
-    /// 
+    ///
     /// Returns messages oldest-first, formatted as user/assistant messages
     pub fn get_context_for_channel(
         cache: &MessageCache,
@@ -49,29 +48,46 @@ impl ConversationContext {
         } else {
             (None, None)
         };
-        
+
         let limit = limit.unwrap_or(config.context_message_limit);
         let retention = retention.unwrap_or(config.context_retention_hours);
 
-        let mut cutoff_unix = (Utc::now() - Duration::hours(retention as i64)).timestamp();
-        
+        let mut cutoff_unix = if retention == 0 {
+            None
+        } else {
+            Some((Utc::now() - Duration::hours(retention as i64)).timestamp())
+        };
+
         // 0. Check Channel Specific Settings (Scope)
         match db.get_channel_settings(&channel_id.to_string()) {
             Ok(Some((_enabled, Some(scope_date)))) => {
                 // If we have a memory start date, use it if it's MORE RECENT than the retention cutoff
                 let scope_date_clone = scope_date.clone();
-                if let Ok(scope_ts) = chrono::DateTime::parse_from_str(&format!("{} +0000", scope_date), "%Y-%m-%d %H:%M:%S %z") {
+                if let Ok(scope_ts) = chrono::DateTime::parse_from_str(
+                    &format!("{} +0000", scope_date),
+                    "%Y-%m-%d %H:%M:%S %z",
+                ) {
                     let scope_unix = scope_ts.timestamp();
-                    if scope_unix > cutoff_unix {
-                        debug!("Context: Respecting memory scope for channel {}: messages after {}", channel_id, scope_date_clone);
-                        cutoff_unix = scope_unix;
+                    let should_update = cutoff_unix.map_or(true, |cutoff| scope_unix > cutoff);
+                    if should_update {
+                        debug!(
+                            "Context: Respecting memory scope for channel {}: messages after {}",
+                            channel_id, scope_date_clone
+                        );
+                        cutoff_unix = Some(scope_unix);
                     }
                 } else {
-                    warn!("Context: Invalid memory scope date '{}' for channel {}", scope_date_clone, channel_id);
+                    warn!(
+                        "Context: Invalid memory scope date '{}' for channel {}",
+                        scope_date_clone, channel_id
+                    );
                 }
             }
             Ok(_) => {}
-            Err(e) => warn!("Context: Failed to load channel settings for {}: {}", channel_id, e),
+            Err(e) => warn!(
+                "Context: Failed to load channel settings for {}: {}",
+                channel_id, e
+            ),
         }
 
         let mut messages = Vec::new();
@@ -79,48 +95,69 @@ impl ConversationContext {
         // 1. Inject Working Memory (Latest Summary) if available
         match db.get_latest_summary(&channel_id.to_string()) {
             Ok(Some(summary)) => {
-                debug!("Context: Injecting working memory (summary) for channel {}", channel_id);
+                debug!(
+                    "Context: Injecting working memory (summary) for channel {}",
+                    channel_id
+                );
                 use async_openai::types::ChatCompletionRequestSystemMessageArgs;
                 if let Ok(msg) = ChatCompletionRequestSystemMessageArgs::default()
-                    .content(format!("Earlier conversation summary for this channel:\n{}", summary))
+                    .content(format!(
+                        "Earlier conversation summary for this channel:\n{}",
+                        summary
+                    ))
                     .build()
                 {
                     messages.push(msg.into());
                 }
             }
             Ok(None) => {}
-            Err(e) => warn!("Context: Failed to load summary for channel {}: {}", channel_id, e),
+            Err(e) => warn!(
+                "Context: Failed to load summary for channel {}: {}",
+                channel_id, e
+            ),
         }
 
         // 2. Fetch Short-Term context (verbatim messages)
-        debug!("Context: Fetching up to {} messages for channel {} (retention: {}h)", limit, channel_id, retention);
+        if retention == 0 {
+            debug!(
+                "Context: Fetching up to {} messages for channel {} (retention: disabled)",
+                limit, channel_id
+            );
+        } else {
+            debug!(
+                "Context: Fetching up to {} messages for channel {} (retention: {}h)",
+                limit, channel_id, retention
+            );
+        }
         let entries = cache.get_channel_history(channel_id, limit);
-        
+
         let mut short_term_messages: Vec<ChatCompletionRequestMessage> = entries
             .into_iter()
             .filter(|msg| {
-                // Filter by retention period using unix timestamps
-                msg.timestamp.unix_timestamp() > cutoff_unix
+                // Filter by retention period using unix timestamps (unless disabled)
+                cutoff_unix.map_or(true, |cutoff| msg.timestamp.unix_timestamp() > cutoff)
             })
-            .filter_map(|msg| {
-                Self::format_message(&msg, bot_id)
-            })
+            .filter_map(|msg| Self::format_message(&msg, bot_id))
             .collect();
-            
-        debug!("Context: Retrieved {} short-term messages for channel {}", short_term_messages.len(), channel_id);
+
+        debug!(
+            "Context: Retrieved {} short-term messages for channel {}",
+            short_term_messages.len(),
+            channel_id
+        );
         messages.append(&mut short_term_messages);
         messages
     }
-    
+
     /// Formats a Discord message into an LLM message
     fn format_message(msg: &Message, bot_id: Option<u64>) -> Option<ChatCompletionRequestMessage> {
         // Skip empty messages
         if msg.content.trim().is_empty() {
             return None;
         }
-        
-        let is_bot = bot_id.map_or(false, |id| msg.author.id.get() == id);
-        
+
+        let is_bot = bot_id.is_some_and(|id| msg.author.id.get() == id);
+
         if is_bot {
             // Bot's own messages become assistant messages
             ChatCompletionRequestAssistantMessageArgs::default()
@@ -144,10 +181,10 @@ impl ConversationContext {
 mod tests {
     use super::*;
     use serenity::model::id::MessageId;
-    use serenity::model::user::User;
     use serenity::model::id::UserId;
     use serenity::model::timestamp::Timestamp;
-    
+    use serenity::model::user::User;
+
     fn mock_config() -> Config {
         Config {
             discord_token: "test".to_string(),
@@ -173,10 +210,34 @@ mod tests {
             embedding_timeout_secs: 30,
             mcp_timeout_secs: 60,
             voice_idle_timeout_secs: 300,
+            dev_guild_id: None,
+            register_commands: false,
+            mcp_tools_require_confirmation: true,
+            agent_confirm_timeout_secs: 300,
+            embedding_indexer_enabled: true,
+            embedding_indexer_batch_size: 25,
+            embedding_indexer_interval_secs: 30,
+            summarization_enabled: true,
+            summarization_interval_secs: 3600,
+            summarization_active_channels_lookback_days: 7,
+            summarization_initial_min_messages: 50,
+            summarization_trigger_new_messages: 150,
+            summarization_trigger_age_hours: 6,
+            summarization_trigger_min_new_messages: 20,
+            summarization_max_tokens: 1200,
+            summarization_refresh_weeks: 6,
+            summarization_refresh_days_lookback: 14,
+            long_term_retention_days: 365,
         }
     }
-    
-    fn mock_message(id: u64, channel_id: u64, user_id: u64, content: &str, username: &str) -> Message {
+
+    fn mock_message(
+        id: u64,
+        channel_id: u64,
+        user_id: u64,
+        content: &str,
+        username: &str,
+    ) -> Message {
         let mut msg = Message::default();
         msg.id = MessageId::new(id);
         msg.channel_id = ChannelId::new(channel_id);
@@ -187,21 +248,27 @@ mod tests {
         msg.timestamp = Timestamp::now();
         msg
     }
-    
+
     #[test]
     fn test_context_retrieval() {
         let cache = MessageCache::new(100);
         let config = mock_config();
-        
+
         // Setup in-memory DB
         let db = Database::new(&config).unwrap();
         db.execute_init().unwrap();
-        
+
         cache.insert(mock_message(1, 100, 1, "Hello everyone", "Alice"));
         cache.insert(mock_message(2, 100, 2, "Hi Alice!", "Bob"));
-        cache.insert(mock_message(3, 100, 999, "Hello, how can I help?", "Mascord")); // Bot
+        cache.insert(mock_message(
+            3,
+            100,
+            999,
+            "Hello, how can I help?",
+            "Mascord",
+        )); // Bot
         cache.insert(mock_message(4, 100, 1, "What's the weather?", "Alice"));
-        
+
         let context = ConversationContext::get_context_for_channel(
             &cache,
             &db,
@@ -210,21 +277,21 @@ mod tests {
             Some(123),
             Some(999), // Bot ID
         );
-        
+
         assert_eq!(context.len(), 4);
     }
-    
+
     #[test]
     fn test_context_limit() {
         let cache = MessageCache::new(100);
         let config = mock_config(); // limit = 5
         let db = Database::new(&config).unwrap();
         db.execute_init().unwrap();
-        
+
         for i in 1..=10 {
             cache.insert(mock_message(i, 100, 1, &format!("Message {}", i), "User"));
         }
-        
+
         let context = ConversationContext::get_context_for_channel(
             &cache,
             &db,
@@ -233,8 +300,36 @@ mod tests {
             Some(123),
             None,
         );
-        
+
         // Should only get 5 messages (the most recent ones)
         assert_eq!(context.len(), 5);
+    }
+
+    #[test]
+    fn test_context_retention_disabled_includes_old_messages() {
+        let cache = MessageCache::new(100);
+        let mut config = mock_config();
+        config.context_retention_hours = 0;
+        let db = Database::new(&config).unwrap();
+        db.execute_init().unwrap();
+
+        let mut old_msg = mock_message(1, 100, 1, "Old", "User");
+        old_msg.timestamp = Timestamp::from_unix_timestamp(1).unwrap();
+        let mut new_msg = mock_message(2, 100, 1, "New", "User");
+        new_msg.timestamp = Timestamp::from_unix_timestamp(Utc::now().timestamp()).unwrap();
+
+        cache.insert(old_msg);
+        cache.insert(new_msg);
+
+        let context = ConversationContext::get_context_for_channel(
+            &cache,
+            &db,
+            &config,
+            ChannelId::new(100),
+            Some(123),
+            None,
+        );
+
+        assert_eq!(context.len(), 2);
     }
 }

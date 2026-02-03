@@ -1,11 +1,15 @@
-use crate::{Context, Error};
-use crate::mcp::config::{McpServerConfig, McpTransport};
 use crate::config::Config;
+use crate::mcp::config::{McpServerConfig, McpTransport};
+use crate::{Context, Error};
 use poise::serenity_prelude as serenity;
 use tracing::{info, warn};
 
 /// Manage MCP servers
-#[poise::command(slash_command, subcommands("list", "add", "remove"), check = "is_owner")]
+#[poise::command(
+    slash_command,
+    subcommands("list", "add", "remove"),
+    check = "is_owner"
+)]
 pub async fn mcp(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
@@ -17,8 +21,9 @@ async fn is_owner(ctx: Context<'_>) -> Result<bool, Error> {
             return Ok(true);
         }
     }
-    
-    ctx.say("❌ Only the bot owner can manage MCP servers.").await?;
+
+    ctx.say("❌ Only the bot owner can manage MCP servers.")
+        .await?;
     Ok(false)
 }
 
@@ -28,7 +33,7 @@ pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
     info!("MCP list command received from {}", ctx.author().name);
     let active_servers = ctx.data().mcp_manager.list_active_servers().await;
     let all_configured = &ctx.data().config.mcp_servers;
-    
+
     let mut response = String::from("## Configured MCP Servers\n");
     if all_configured.is_empty() {
         response.push_str("_No servers configured._");
@@ -39,10 +44,13 @@ pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
             } else {
                 "🔴 Offline"
             };
-            response.push_str(&format!("- **{}**: {} ({:?})\n", server.name, status, server.transport));
+            response.push_str(&format!(
+                "- **{}**: {} ({:?})\n",
+                server.name, status, server.transport
+            ));
         }
     }
-    
+
     ctx.say(response).await?;
     Ok(())
 }
@@ -56,7 +64,7 @@ pub async fn add(
     #[description = "Arguments (comma separated)"] args: Option<String>,
 ) -> Result<(), Error> {
     let args_vec = args.map(|s| s.split(',').map(|a| a.trim().to_string()).collect());
-    
+
     let new_server = McpServerConfig {
         name: name.clone(),
         transport: McpTransport::Stdio,
@@ -65,25 +73,35 @@ pub async fn add(
         url: None,
         env: None,
     };
-    
+
     // 1. Connect to the new server
     ctx.data().mcp_manager.connect(&new_server).await?;
-    
+
     // 2. Update and persist configuration (This part is tricky because Data.config is not mutable)
     // We should probably have a way to update the global config or just rely on the TOML file.
     // For now, let's update the TOML file. Next restart it will be fully integrated.
     // However, to make it work NOW, we already connected it to the manager.
-    
+
     let mut current_servers = Config::load_mcp_servers().unwrap_or_else(|e| {
-        warn!("MCP add command: Failed to load existing config; starting fresh: {}", e);
+        warn!(
+            "MCP add command: Failed to load existing config; starting fresh: {}",
+            e
+        );
         Vec::new()
     });
     current_servers.retain(|s| s.name != name);
     current_servers.push(new_server);
     Config::save_mcp_servers(&current_servers)?;
-    
-    info!("MCP add command: Successfully added and connected to server '{}'", name);
-    ctx.say(format!("✅ Successfully added and connected to MCP server: **{}**", name)).await?;
+
+    info!(
+        "MCP add command: Successfully added and connected to server '{}'",
+        name
+    );
+    ctx.say(format!(
+        "✅ Successfully added and connected to MCP server: **{}**",
+        name
+    ))
+    .await?;
     Ok(())
 }
 
@@ -96,23 +114,37 @@ pub async fn remove(
     info!("MCP remove command: Attempting to remove server '{}'", name);
     // 1. Disconnect from manager
     let _ = ctx.data().mcp_manager.disconnect(&name).await;
-    
+
     // 2. Update persistence
     let mut current_servers = Config::load_mcp_servers().unwrap_or_else(|e| {
-        warn!("MCP remove command: Failed to load existing config; starting fresh: {}", e);
+        warn!(
+            "MCP remove command: Failed to load existing config; starting fresh: {}",
+            e
+        );
         Vec::new()
     });
     let initial_len = current_servers.len();
     current_servers.retain(|s| s.name != name);
-    
+
     if current_servers.len() < initial_len {
         Config::save_mcp_servers(&current_servers)?;
-        info!("MCP remove command: Successfully removed server '{}' from configuration", name);
-        ctx.say(format!("✅ Successfully removed MCP server: **{}**", name)).await?;
+        info!(
+            "MCP remove command: Successfully removed server '{}' from configuration",
+            name
+        );
+        ctx.say(format!("✅ Successfully removed MCP server: **{}**", name))
+            .await?;
     } else {
-        warn!("MCP remove command: Server '{}' not found in configuration", name);
-        ctx.say(format!("❌ MCP server **{}** not found in configuration.", name)).await?;
+        warn!(
+            "MCP remove command: Server '{}' not found in configuration",
+            name
+        );
+        ctx.say(format!(
+            "❌ MCP server **{}** not found in configuration.",
+            name
+        ))
+        .await?;
     }
-    
+
     Ok(())
 }
