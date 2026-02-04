@@ -155,9 +155,9 @@ impl Config {
                 .parse()
                 .unwrap_or(25),
             embedding_indexer_interval_secs: env::var("EMBEDDING_INDEXER_INTERVAL_SECS")
-                .unwrap_or_else(|_| "30".to_string())
+                .unwrap_or_else(|_| "300".to_string())
                 .parse()
-                .unwrap_or(30),
+                .unwrap_or(300),
 
             summarization_enabled: env::var("SUMMARIZATION_ENABLED")
                 .unwrap_or_else(|_| "true".to_string())

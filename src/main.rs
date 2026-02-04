@@ -101,6 +101,7 @@ async fn main() -> anyhow::Result<()> {
                 music::leave(),
                 music::queue(),
                 admin::shutdown(),
+                admin::restart(),
                 mcp::mcp(),
                 settings::settings(), // /settings context
             ],

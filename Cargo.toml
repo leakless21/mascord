@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 # Discord
-poise = "0.6"
-serenity = { version = "0.12", features = ["voice", "gateway", "client", "model", "cache"] }
+poise = "0.6.1"
+serenity = { version = "0.12.5", features = ["voice", "gateway", "client", "model", "cache"] }
 songbird = { version = "0.5", features = ["builtin-queue", "serenity"] }
 
 # Async runtime
@@ -16,7 +16,7 @@ async-trait = "0.1"
 
 # HTTP & LLM
 reqwest = { version = "0.12", features = ["json"] }
-async-openai = "0.28"
+async-openai = "0.29"
 
 # Database
 rusqlite = { version = "0.31", features = ["bundled"] }
@@ -27,9 +27,8 @@ serde_json = "1"
 schemars = "0.8"
 
 # MCP (Model Context Protocol)
-# Note: Using a placeholder version as the library is in early development
-# We will use the rmcp-macros for easier tool definition
-rmcp = { version = "0.1", features = ["client", "transport-child-process"] }
+# Updated to 0.14+ which fixes list_tools hanging issue with early MCP servers
+rmcp = { version = "0.14", features = ["client", "transport-io", "transport-child-process"] }
 
 # Utilities
 tracing = "0.1"

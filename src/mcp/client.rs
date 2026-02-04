@@ -4,7 +4,7 @@ use crate::tools::Tool;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use rmcp::{
-    model::CallToolRequestParam,
+    model::CallToolRequestParams,
     service::{RoleClient, RunningService, ServiceExt},
     transport::child_process::TokioChildProcess,
 };
@@ -63,7 +63,7 @@ impl McpClientManager {
                     cmd.envs(env);
                 }
 
-                let transport = TokioChildProcess::new(&mut cmd).map_err(|e| {
+                let transport = TokioChildProcess::new(cmd).map_err(|e| {
                     error!(
                         "MCP client: Failed to start child process for server '{}': {}",
                         config.name, e
@@ -138,26 +138,49 @@ impl McpClientManager {
                 "MCP client: Discovering tools from server '{}'...",
                 server_name
             );
-            if let Ok(tools_result) = service.list_tools(Default::default()).await {
-                debug!(
-                    "MCP client: Found {} tools on server '{}'",
-                    tools_result.tools.len(),
-                    server_name
-                );
-                for tool in tools_result.tools {
-                    // Assuming description might be Cow or Option<Cow> based on build errors
-                    // In current version it seems to be Cow.
-                    let desc = tool.description.to_string();
+            // Add timeout to prevent hanging on unresponsive MCP servers
+            let discovery_timeout = tokio::time::Duration::from_secs(self.timeout_secs);
+            let tools_result = tokio::time::timeout(
+                discovery_timeout,
+                service.list_all_tools()
+            ).await;
+            
+            match tools_result {
+                Ok(Ok(tools)) => {
+                    debug!(
+                        "MCP client: Found {} tools on server '{}'",
+                        tools.len(),
+                        server_name
+                    );
+                    for tool in tools {
+                        // In rmcp 0.14+, description is Option<Cow>
+                        let desc = tool.description
+                            .as_ref()
+                            .map(|d| d.to_string())
+                            .unwrap_or_else(|| "(no description)".to_string());
 
-                    all_tools.push(Arc::new(McpToolWrapper {
-                        server_name: server_name.clone(),
-                        service: service.clone(),
-                        name: tool.name.to_string(),
-                        description: desc,
-                        input_schema: serde_json::Value::Object((*tool.input_schema).clone()),
-                        timeout_secs: self.timeout_secs,
-                        requires_confirmation: require_confirmation,
-                    }) as Arc<dyn Tool>);
+                        all_tools.push(Arc::new(McpToolWrapper {
+                            server_name: server_name.clone(),
+                            service: service.clone(),
+                            name: tool.name.to_string(),
+                            description: desc,
+                            input_schema: serde_json::Value::Object((*tool.input_schema).clone()),
+                            timeout_secs: self.timeout_secs,
+                            requires_confirmation: require_confirmation,
+                        }) as Arc<dyn Tool>);
+                    }
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!(
+                        "MCP client: Failed to discover tools from server '{}': {}",
+                        server_name, e
+                    );
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        "MCP client: Tool discovery timed out for server '{}' after {}s",
+                        server_name, self.timeout_secs
+                    );
                 }
             }
         }
@@ -203,9 +226,11 @@ impl Tool for McpToolWrapper {
 
         let result = timeout(
             Duration::from_secs(self.timeout_secs),
-            self.service.call_tool(CallToolRequestParam {
+            self.service.call_tool(CallToolRequestParams {
                 name: self.name.clone().into(),
                 arguments: params.as_object().cloned(),
+                meta: Default::default(),
+                task: None,
             }),
         )
         .await
