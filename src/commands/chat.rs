@@ -23,10 +23,28 @@ pub async fn chat(
     );
     ctx.defer().await?;
 
+    let guild_id = ctx.guild_id().map(|id| id.get());
+    let system_prompt = if let Some(gid) = guild_id {
+        ctx.data()
+            .db
+            .get_guild_system_prompt(gid)?
+            .unwrap_or_else(|| ctx.data().config.system_prompt.clone())
+    } else {
+        ctx.data().config.system_prompt.clone()
+    };
+    let confirm_timeout_secs = if let Some(gid) = guild_id {
+        ctx.data()
+            .db
+            .get_guild_agent_confirm_timeout(gid)?
+            .unwrap_or(ctx.data().config.agent_confirm_timeout_secs)
+    } else {
+        ctx.data().config.agent_confirm_timeout_secs
+    };
+
     // Build messages with configurable system prompt
     let mut messages: Vec<ChatCompletionRequestMessage> =
         vec![ChatCompletionRequestSystemMessageArgs::default()
-            .content(ctx.data().config.system_prompt.clone())
+            .content(system_prompt)
             .build()?
             .into()];
 
@@ -57,7 +75,7 @@ pub async fn chat(
         ctx.serenity_context(),
         ctx.channel_id(),
         ctx.author().id,
-        std::time::Duration::from_secs(ctx.data().config.agent_confirm_timeout_secs),
+        std::time::Duration::from_secs(confirm_timeout_secs),
     );
     let response = match agent.run_with_confirmation(confirm_ctx, messages, 10).await {
         Ok(r) => r,

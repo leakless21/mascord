@@ -13,7 +13,8 @@ Voice channel management and YouTube audio streaming.
 
 ## Implementation Details
 Uses `songbird` with `builtin-queue` and `yt-dlp` features enabled. Includes:
-- **IdleHandler**: Auto-disconnect after 5 minutes of inactivity.
+- **IdleHandler**: Auto-disconnect after a configurable idle timeout (default: 5 minutes).
+- **Idle Timeout Override**: Per-guild idle timeout can be configured via `/settings voice_timeout` and stored in SQLite.
 - **CleanupService**: Periodic deletion of old `yt-dlp` cache files.
 - **Cookie Support**: Passing cookies via `YTDL_ARGS` env var; warns and skips if cookie file path is missing.
 

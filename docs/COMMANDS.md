@@ -214,13 +214,33 @@ Manage conversation context and memory limits.
 - `retention` - Hours of messages to keep (0-unlimited)
 - `summarize` - Create a summary of conversation history
 
-#### `/settings advanced`
-Advanced configuration (owner-only).
+#### `/settings system_prompt`
+View or update the assistant's system prompt for this server.
 
 ```
-/settings advanced llm_timeout 60      # LLM timeout in seconds
-/settings advanced register_commands   # Re-register slash commands
+/settings system_prompt                    # View current prompt
+/settings system_prompt "Be concise"       # Set override
+/settings system_prompt reset:true         # Reset to default
 ```
+
+#### `/settings agent_timeout`
+View or update the tool confirmation timeout.
+
+```
+/settings agent_timeout                 # View current timeout
+/settings agent_timeout 180             # Set to 180 seconds
+/settings agent_timeout reset:true      # Reset to default
+```
+
+#### `/settings voice_timeout`
+View or update the voice idle timeout for auto-disconnect.
+
+```
+/settings voice_timeout                 # View current timeout
+/settings voice_timeout 600             # Set to 10 minutes
+/settings voice_timeout reset:true      # Reset to default
+```
+
 
 ---
 

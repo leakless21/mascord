@@ -34,6 +34,12 @@ The bot is configured via environment variables (see `.env.example`). If a varia
 - `SUMMARIZATION_MAX_TOKENS`: (Default: `1200`) Hard cap for stored channel summaries (approximate).
 - `CONTEXT_RETENTION_HOURS`: (Default: `24`) Short-term time filter; set to `0` to disable time filtering and rely on message count.
 
+Selected settings can also be overridden per guild using `/settings` commands. These overrides are stored in SQLite and take precedence over environment defaults for that server:
+
+- `SYSTEM_PROMPT`
+- `AGENT_CONFIRM_TIMEOUT_SECS`
+- `VOICE_IDLE_TIMEOUT_SECS`
+
 ## Platform Notes
 
 - Core bot code is OS-agnostic Rust; supported targets are macOS and Linux.
@@ -63,3 +69,8 @@ Uses Poise's shared `Data` struct (thread-safe, wrapped in `Arc` by the framewor
 ## Security
 
 Commands restricted to the bot owner use the `owner_id` check from `src/config.rs`. Sensitive configuration fields (tokens, API keys) are redacted in `Debug` logs via a custom implementation in `src/config.rs`.
+
+## Planned Additions
+
+- **User Memory (Opt-in)**: Add commands for users to enable, view, edit, and delete their personal memory profile.
+- **Service Layer**: Route commands through services instead of direct database calls to preserve architecture boundaries.

@@ -5,7 +5,7 @@ use tracing::info;
 /// Manage bot settings
 #[poise::command(
     slash_command,
-    subcommands("context", "memory"),
+    subcommands("context", "memory", "system_prompt", "agent_timeout", "voice_timeout"),
     required_permissions = "MANAGE_GUILD",
     guild_only
 )]
@@ -25,6 +25,159 @@ pub async fn context(_ctx: Context<'_>) -> Result<(), Error> {
     subcommands("list", "enable", "disable", "scope", "purge")
 )]
 pub async fn memory(_ctx: Context<'_>) -> Result<(), Error> {
+    Ok(())
+}
+
+/// View or update the server system prompt
+#[poise::command(slash_command)]
+pub async fn system_prompt(
+    ctx: Context<'_>,
+    #[description = "New system prompt (omit to view current)"] prompt: Option<String>,
+    #[description = "Reset to default config value"] reset: Option<bool>,
+) -> Result<(), Error> {
+    let guild_id = ctx.guild_id().ok_or("Must be run in a guild")?;
+
+    if reset.unwrap_or(false) {
+        ctx.data()
+            .db
+            .set_guild_system_prompt(guild_id.get(), None)?;
+        ctx.say("✅ System prompt reset to default.").await?;
+        return Ok(());
+    }
+
+    if let Some(prompt) = prompt {
+        let trimmed = prompt.trim();
+        if trimmed.is_empty() {
+            ctx.say("❌ System prompt cannot be empty.").await?;
+            return Ok(());
+        }
+        ctx.data()
+            .db
+            .set_guild_system_prompt(guild_id.get(), Some(trimmed))?;
+        ctx.say("✅ System prompt updated for this server.").await?;
+        return Ok(());
+    }
+
+    let override_prompt = ctx.data().db.get_guild_system_prompt(guild_id.get())?;
+    let (prompt_text, source) = match override_prompt {
+        Some(p) if !p.trim().is_empty() => (p, "Server Override"),
+        _ => (ctx.data().config.system_prompt.clone(), "Default Configuration"),
+    };
+
+    let embed = serenity::CreateEmbed::new()
+        .title("🧠 System Prompt")
+        .description(prompt_text)
+        .footer(serenity::CreateEmbedFooter::new(source))
+        .color(0x5865F2);
+
+    ctx.send(poise::CreateReply::default().embed(embed)).await?;
+    Ok(())
+}
+
+/// View or update the agent confirmation timeout
+#[poise::command(slash_command)]
+pub async fn agent_timeout(
+    ctx: Context<'_>,
+    #[description = "Tool confirmation timeout in seconds (omit to view)"]
+    #[min = 30]
+    #[max = 3600]
+    timeout_secs: Option<u64>,
+    #[description = "Reset to default config value"] reset: Option<bool>,
+) -> Result<(), Error> {
+    let guild_id = ctx.guild_id().ok_or("Must be run in a guild")?;
+
+    if reset.unwrap_or(false) {
+        ctx.data()
+            .db
+            .set_guild_agent_confirm_timeout(guild_id.get(), None)?;
+        ctx.say("✅ Agent confirmation timeout reset to default.")
+            .await?;
+        return Ok(());
+    }
+
+    if let Some(timeout) = timeout_secs {
+        ctx.data()
+            .db
+            .set_guild_agent_confirm_timeout(guild_id.get(), Some(timeout))?;
+        ctx.say(format!(
+            "✅ Agent confirmation timeout set to **{}** seconds.",
+            timeout
+        ))
+        .await?;
+        return Ok(());
+    }
+
+    let override_timeout = ctx
+        .data()
+        .db
+        .get_guild_agent_confirm_timeout(guild_id.get())?;
+    let timeout = override_timeout.unwrap_or(ctx.data().config.agent_confirm_timeout_secs);
+    let source = if override_timeout.is_some() {
+        "Server Override"
+    } else {
+        "Default Configuration"
+    };
+
+    let embed = serenity::CreateEmbed::new()
+        .title("⏱️ Agent Confirmation Timeout")
+        .description(format!("**{}** seconds", timeout))
+        .footer(serenity::CreateEmbedFooter::new(source))
+        .color(0x5865F2);
+
+    ctx.send(poise::CreateReply::default().embed(embed)).await?;
+    Ok(())
+}
+
+/// View or update voice idle timeout
+#[poise::command(slash_command)]
+pub async fn voice_timeout(
+    ctx: Context<'_>,
+    #[description = "Voice idle timeout in seconds (omit to view)"]
+    #[min = 60]
+    #[max = 3600]
+    timeout_secs: Option<u64>,
+    #[description = "Reset to default config value"] reset: Option<bool>,
+) -> Result<(), Error> {
+    let guild_id = ctx.guild_id().ok_or("Must be run in a guild")?;
+
+    if reset.unwrap_or(false) {
+        ctx.data()
+            .db
+            .set_guild_voice_idle_timeout(guild_id.get(), None)?;
+        ctx.say("✅ Voice idle timeout reset to default.").await?;
+        return Ok(());
+    }
+
+    if let Some(timeout) = timeout_secs {
+        ctx.data()
+            .db
+            .set_guild_voice_idle_timeout(guild_id.get(), Some(timeout))?;
+        ctx.say(format!(
+            "✅ Voice idle timeout set to **{}** seconds.",
+            timeout
+        ))
+        .await?;
+        return Ok(());
+    }
+
+    let override_timeout = ctx
+        .data()
+        .db
+        .get_guild_voice_idle_timeout(guild_id.get())?;
+    let timeout = override_timeout.unwrap_or(ctx.data().config.voice_idle_timeout_secs);
+    let source = if override_timeout.is_some() {
+        "Server Override"
+    } else {
+        "Default Configuration"
+    };
+
+    let embed = serenity::CreateEmbed::new()
+        .title("🔊 Voice Idle Timeout")
+        .description(format!("**{}** seconds", timeout))
+        .footer(serenity::CreateEmbedFooter::new(source))
+        .color(0x5865F2);
+
+    ctx.send(poise::CreateReply::default().embed(embed)).await?;
     Ok(())
 }
 

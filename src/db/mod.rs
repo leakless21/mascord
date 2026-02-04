@@ -142,7 +142,10 @@ impl Database {
             CREATE TABLE IF NOT EXISTS settings (
                 guild_id TEXT PRIMARY KEY,
                 context_limit INTEGER,
-                context_retention INTEGER
+                context_retention INTEGER,
+                system_prompt TEXT,
+                agent_confirm_timeout_secs INTEGER,
+                voice_idle_timeout_secs INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS channel_summaries (
@@ -190,6 +193,31 @@ impl Database {
             let msg = e.to_string();
             if !msg.contains("duplicate column name") {
                 return Err(e).context("Failed to migrate: add channel_summaries.refreshed_at column");
+            }
+        }
+
+        if let Err(e) = conn.execute("ALTER TABLE settings ADD COLUMN system_prompt TEXT", []) {
+            let msg = e.to_string();
+            if !msg.contains("duplicate column name") {
+                return Err(e).context("Failed to migrate: add settings.system_prompt column");
+            }
+        }
+
+        if let Err(e) =
+            conn.execute("ALTER TABLE settings ADD COLUMN agent_confirm_timeout_secs INTEGER", [])
+        {
+            let msg = e.to_string();
+            if !msg.contains("duplicate column name") {
+                return Err(e)
+                    .context("Failed to migrate: add settings.agent_confirm_timeout_secs column");
+            }
+        }
+
+        if let Err(e) = conn.execute("ALTER TABLE settings ADD COLUMN voice_idle_timeout_secs INTEGER", []) {
+            let msg = e.to_string();
+            if !msg.contains("duplicate column name") {
+                return Err(e)
+                    .context("Failed to migrate: add settings.voice_idle_timeout_secs column");
             }
         }
 
@@ -321,6 +349,94 @@ impl Database {
         } else {
             Ok((None, None))
         }
+    }
+
+    pub fn get_guild_system_prompt(&self, guild_id: u64) -> anyhow::Result<Option<String>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare("SELECT system_prompt FROM settings WHERE guild_id = ?1")?;
+        let mut rows = stmt.query([guild_id.to_string()])?;
+
+        if let Some(row) = rows.next()? {
+            let prompt: Option<String> = row.get(0).ok();
+            Ok(prompt)
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn set_guild_system_prompt(
+        &self,
+        guild_id: u64,
+        prompt: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "INSERT INTO settings (guild_id, system_prompt)
+             VALUES (?1, ?2)
+             ON CONFLICT(guild_id) DO UPDATE SET system_prompt = excluded.system_prompt",
+            (guild_id.to_string(), prompt),
+        )?;
+        Ok(())
+    }
+
+    pub fn get_guild_agent_confirm_timeout(&self, guild_id: u64) -> anyhow::Result<Option<u64>> {
+        let conn = self.lock_conn()?;
+        let mut stmt =
+            conn.prepare("SELECT agent_confirm_timeout_secs FROM settings WHERE guild_id = ?1")?;
+        let mut rows = stmt.query([guild_id.to_string()])?;
+
+        if let Some(row) = rows.next()? {
+            let value: Option<u64> = row.get(0).ok();
+            Ok(value)
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn set_guild_agent_confirm_timeout(
+        &self,
+        guild_id: u64,
+        timeout_secs: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "INSERT INTO settings (guild_id, agent_confirm_timeout_secs)
+             VALUES (?1, ?2)
+             ON CONFLICT(guild_id) DO UPDATE
+                 SET agent_confirm_timeout_secs = excluded.agent_confirm_timeout_secs",
+            (guild_id.to_string(), timeout_secs),
+        )?;
+        Ok(())
+    }
+
+    pub fn get_guild_voice_idle_timeout(&self, guild_id: u64) -> anyhow::Result<Option<u64>> {
+        let conn = self.lock_conn()?;
+        let mut stmt =
+            conn.prepare("SELECT voice_idle_timeout_secs FROM settings WHERE guild_id = ?1")?;
+        let mut rows = stmt.query([guild_id.to_string()])?;
+
+        if let Some(row) = rows.next()? {
+            let value: Option<u64> = row.get(0).ok();
+            Ok(value)
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn set_guild_voice_idle_timeout(
+        &self,
+        guild_id: u64,
+        timeout_secs: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "INSERT INTO settings (guild_id, voice_idle_timeout_secs)
+             VALUES (?1, ?2)
+             ON CONFLICT(guild_id) DO UPDATE
+                 SET voice_idle_timeout_secs = excluded.voice_idle_timeout_secs",
+            (guild_id.to_string(), timeout_secs),
+        )?;
+        Ok(())
     }
 
     pub fn save_summary(&self, channel_id: &str, summary: &str) -> anyhow::Result<()> {

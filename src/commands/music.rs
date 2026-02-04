@@ -53,13 +53,19 @@ async fn join_voice_channel_internal(
             );
             let mut handler = handler_lock.lock().await;
 
-            // Add idle handler to leave after 5 mins of no tracks
+            let idle_timeout_secs = ctx
+                .data()
+                .db
+                .get_guild_voice_idle_timeout(guild_id.get())?
+                .unwrap_or(ctx.data().config.voice_idle_timeout_secs);
+
+            // Add idle handler to leave after a period of no tracks
             handler.add_global_event(
                 songbird::Event::Track(songbird::TrackEvent::End),
                 crate::voice::events::IdleHandler {
                     guild_id,
                     manager: manager.clone(),
-                    idle_timeout_secs: ctx.data().config.voice_idle_timeout_secs,
+                    idle_timeout_secs,
                 },
             );
 

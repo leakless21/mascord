@@ -21,10 +21,26 @@ pub async fn handle_reply(
         new_message.author.name, new_message.channel_id, new_message.content
     );
 
+    let guild_id = new_message.guild_id.map(|id| id.get());
+    let system_prompt = if let Some(gid) = guild_id {
+        data.db
+            .get_guild_system_prompt(gid)?
+            .unwrap_or_else(|| data.config.system_prompt.clone())
+    } else {
+        data.config.system_prompt.clone()
+    };
+    let confirm_timeout_secs = if let Some(gid) = guild_id {
+        data.db
+            .get_guild_agent_confirm_timeout(gid)?
+            .unwrap_or(data.config.agent_confirm_timeout_secs)
+    } else {
+        data.config.agent_confirm_timeout_secs
+    };
+
     // Build messages with configurable system prompt
     let mut messages: Vec<ChatCompletionRequestMessage> =
         vec![ChatCompletionRequestSystemMessageArgs::default()
-            .content(data.config.system_prompt.clone())
+            .content(system_prompt)
             .build()?
             .into()];
 
@@ -93,7 +109,7 @@ pub async fn handle_reply(
         ctx,
         new_message.channel_id,
         new_message.author.id,
-        std::time::Duration::from_secs(data.config.agent_confirm_timeout_secs),
+        std::time::Duration::from_secs(confirm_timeout_secs),
     );
     let response = match agent.run_with_confirmation(confirm_ctx, messages, 10).await {
         Ok(r) => r,

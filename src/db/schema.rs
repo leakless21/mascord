@@ -18,7 +18,10 @@ CREATE INDEX IF NOT EXISTS idx_messages_guild_date ON messages (guild_id, timest
 CREATE TABLE IF NOT EXISTS settings (
     guild_id TEXT PRIMARY KEY,
     context_limit INTEGER,
-    context_retention INTEGER
+    context_retention INTEGER,
+    system_prompt TEXT,
+    agent_confirm_timeout_secs INTEGER,
+    voice_idle_timeout_secs INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS channel_summaries (

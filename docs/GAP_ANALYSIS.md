@@ -1,7 +1,7 @@
 # Gap Analysis: Mascord Discord Bot
 
 This document tracks identified gaps, edge cases, and potential issues requiring remediation.
-Last reviewed: February 3, 2026 (hybrid retrieval, milestone extraction, retention override documented; no new runtime gaps added).
+Last reviewed: February 4, 2026 (user-memory gaps, async DB blocking risk, and data handling controls reviewed).
 
 ## Legend
 
@@ -170,10 +170,10 @@ Last reviewed: February 3, 2026 (hybrid retrieval, milestone extraction, retenti
 
 ### GAP-013: SQL Injection in Search Query 🔴
 
-**Status**: Open
-**Description**: `db/mod.rs:146` uses string formatting for query parameter: `format!(" AND content LIKE '%{}%'", query.replace("'", "''"))`.
-**Impact**: SQL injection vulnerability despite quote escaping.
-**Resolution**: Use parameterized queries with `?` placeholders.
+**Status**: Resolved ✅
+**Description**: Search queries were previously built with string formatting.
+**Impact**: Potential SQL injection risk.
+**Resolution**: Replaced with parameterized queries using `?` placeholders.
 
 ### GAP-014: Database Connection Pool Absent 🟢
 
@@ -203,6 +203,49 @@ Last reviewed: February 3, 2026 (hybrid retrieval, milestone extraction, retenti
 **Description**: macOS is not listed as a supported platform, and there is no CI or documented validation of macOS builds/runtime behavior.
 **Impact**: macOS users may hit build or runtime issues without clear guidance; support expectations are unclear.
 **Resolution**: Document macOS support and prerequisites, and add CI (or a manual test checklist) to validate macOS builds and basic runtime.
+
+---
+
+## 9. User Memory & Privacy
+
+### GAP-022: No User-Scoped Memory (Opt-in) 🟡
+
+**Status**: Open
+**Description**: The bot supports channel-scoped memory, but has no opt-in per-user memory profile or preference store.
+**Impact**: Limits "assistant" behavior for individual users and forces all memory to be channel-level.
+**Resolution**: Add a user memory service with opt-in, user-controlled CRUD commands, and scoped injection.
+
+### GAP-023: No Per-User Data Deletion 🟡
+
+**Status**: Open
+**Description**: Current purge controls are channel-based; there is no "delete my data" path for a specific user.
+**Impact**: Harder to meet user expectations and platform data-handling requirements.
+**Resolution**: Add per-user purge (messages + memory) and a self-service delete command.
+
+### GAP-024: No Documented Data Security (At-Rest) 🟡
+
+**Status**: Open
+**Description**: SQLite data is stored in plaintext without documented encryption at rest.
+**Impact**: Potential compliance and security risk for stored user data.
+**Resolution**: Document security controls and consider DB encryption or OS-level encryption.
+
+---
+
+## 10. Performance & Architecture
+
+### GAP-025: Blocking SQLite Calls on Async Runtime 🟡
+
+**Status**: Open
+**Description**: Many SQLite calls are executed directly in async contexts without `spawn_blocking`.
+**Impact**: Potential latency spikes or event loop stalls under load.
+**Resolution**: Wrap DB calls in `spawn_blocking` or move to an async DB layer/pool.
+
+### GAP-026: Commands Bypass Service Layer 🟢
+
+**Status**: Open
+**Description**: Commands call the database directly instead of using services.
+**Impact**: Harder to test and violates documented architecture boundaries.
+**Resolution**: Introduce service modules (e.g., `ContextService`, `RagService`, `SettingsService`) and route commands through them.
 
 ---
 

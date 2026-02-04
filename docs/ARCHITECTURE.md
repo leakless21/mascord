@@ -84,6 +84,13 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 - **Interface**: `src/mention.rs`.
 - **Dependencies**: `src/commands/chat.rs`, `src/llm/agent.rs`.
 
+### 12. User Memory Service (Planned)
+
+- **Responsibility**: Store opt-in, curated per-user memory (preferences, projects) and inject it into prompts when relevant.
+- **Storage**: SQLite table for user memory summaries with update timestamps and scope (guild/DM).
+- **Interface**: New user memory commands and a small service layer to read/write memories.
+- **Dependencies**: `src/db/mod.rs`, `src/context.rs`, `src/commands/`.
+
 ## Error Handling & Surfacing
 
 - **Command errors**: Centralized Poise `on_error` handler logs full details and sends a user-facing error message.
@@ -96,6 +103,7 @@ Mascord uses a tiered configuration system:
 1. **Source Code Constants**: Hardcoded defaults for ports (8080), models (local-model), and prompts.
 2. **Environment Variables**: Overrides from the shell environment.
 3. **.env File**: Local overrides for development/deployment convenience.
+4. **Per-Guild Overrides**: Selected runtime settings stored in SQLite and managed via `/settings` commands.
 
 The `Config` struct in `src/config.rs` is responsible for merging these sources using `dotenvy` and `std::env`.
 
@@ -114,7 +122,8 @@ The `Config` struct in `src/config.rs` is responsible for merging these sources 
   - `messages`: Standard message history (guild_id, channel_id, user_id, content, timestamp).
   - `channel_summaries`: Condensed Working Memory snapshots (channel_id, summary, updated_at).
   - `channel_settings`: Per-channel memory control (guild_id, channel_id, enabled, memory_start_date).
-  - `settings`: Per-server configurations.
+  - `settings`: Per-server configurations (context limits, system prompt, agent confirmation timeout, voice idle timeout).
+  - `user_memory` (planned): Opt-in user memory summaries (guild_id, user_id, summary, updated_at, scope).
 
 ## Interfaces
 

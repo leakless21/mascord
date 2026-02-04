@@ -23,6 +23,11 @@
     - **Long-Term**: On-demand search of full history.
 - **Context Retention Modes**: `CONTEXT_RETENTION_HOURS=0` disables time filtering for short-term memory (count-only).
 - Streaming responses (if supported by Discord/Framework).
+- **User Memory (Opt-in)**:
+  - Allow users to explicitly opt-in to a personal, curated memory profile (preferences, ongoing projects).
+  - Provide commands to view, edit, and delete user memory.
+  - Keep user memory scoped to a guild by default; allow DM-only memory for private use.
+  - Support retention policies (TTL/expiry) and hard-delete on request.
 
 ### 3. RAG (Retrieval-Augmented Generation)
 
@@ -63,12 +68,14 @@
 - Admin-only commands restricted by `OWNER_ID`.
 - Secure handling of API keys for LLM and Embedding services.
 - Graceful shutdown triggered by authorized users.
+- Provide a user-facing mechanism to delete their stored data (messages and user memory) on request.
 
 ### 7. Configuration & Deployment
 
 - The bot must provide sensible defaults for all configuration variables (LLM URLs, ports, prompts) to ensure "zero-config" functionality beyond Discord credentials.
 - All configuration should be overrideable via environment variables or a `.env` file.
 - The system should maintain an up-to-date `.env.example` that matches these internal defaults.
+- Server owners must be able to override selected runtime settings via slash commands, with per-guild values persisted in the database (e.g., system prompt, agent confirmation timeout, voice idle timeout).
 
 ## Non-Functional Requirements
 
