@@ -103,6 +103,13 @@ pub struct ChannelSummaryRecord {
     pub refreshed_at: String,
 }
 
+pub struct UserMemoryRecord {
+    pub summary: String,
+    pub enabled: bool,
+    pub updated_at: String,
+    pub expires_at: Option<String>,
+}
+
 impl Database {
     pub fn new(config: &Config) -> anyhow::Result<Self> {
         let conn = Connection::open(&config.database_url)
@@ -117,6 +124,15 @@ impl Database {
         self.conn
             .lock()
             .map_err(|_| anyhow::anyhow!("Database connection lock poisoned"))
+    }
+
+    pub async fn run_blocking<T, F>(&self, f: F) -> anyhow::Result<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Database) -> anyhow::Result<T> + Send + 'static,
+    {
+        let db = self.clone();
+        tokio::task::spawn_blocking(move || f(&db)).await?
     }
 
     pub fn execute_init(&self) -> anyhow::Result<()> {
@@ -173,6 +189,14 @@ impl Database {
             );
             CREATE INDEX IF NOT EXISTS idx_milestones_channel_created
               ON channel_milestones (channel_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS user_memory (
+                user_id TEXT PRIMARY KEY,
+                summary TEXT NOT NULL,
+                enabled BOOLEAN DEFAULT TRUE,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME
+            );
             ",
         )
         .context("Failed to initialize database schema")?;
@@ -203,9 +227,10 @@ impl Database {
             }
         }
 
-        if let Err(e) =
-            conn.execute("ALTER TABLE settings ADD COLUMN agent_confirm_timeout_secs INTEGER", [])
-        {
+        if let Err(e) = conn.execute(
+            "ALTER TABLE settings ADD COLUMN agent_confirm_timeout_secs INTEGER",
+            [],
+        ) {
             let msg = e.to_string();
             if !msg.contains("duplicate column name") {
                 return Err(e)
@@ -213,7 +238,10 @@ impl Database {
             }
         }
 
-        if let Err(e) = conn.execute("ALTER TABLE settings ADD COLUMN voice_idle_timeout_secs INTEGER", []) {
+        if let Err(e) = conn.execute(
+            "ALTER TABLE settings ADD COLUMN voice_idle_timeout_secs INTEGER",
+            [],
+        ) {
             let msg = e.to_string();
             if !msg.contains("duplicate column name") {
                 return Err(e)
@@ -703,6 +731,79 @@ impl Database {
         Ok(results)
     }
 
+    // --- User Memory ---
+
+    pub fn upsert_user_memory(
+        &self,
+        user_id: &str,
+        summary: &str,
+        expires_at: Option<String>,
+    ) -> anyhow::Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "INSERT INTO user_memory (user_id, summary, enabled, updated_at, expires_at)
+             VALUES (?1, ?2, 1, CURRENT_TIMESTAMP, ?3)
+             ON CONFLICT(user_id) DO UPDATE SET
+                 summary = excluded.summary,
+                 enabled = 1,
+                 updated_at = CURRENT_TIMESTAMP,
+                 expires_at = excluded.expires_at",
+            (user_id, summary, expires_at),
+        )?;
+        Ok(())
+    }
+
+    pub fn get_user_memory(&self, user_id: &str) -> anyhow::Result<Option<UserMemoryRecord>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT summary, enabled, updated_at, expires_at
+             FROM user_memory
+             WHERE user_id = ?1",
+        )?;
+        let mut rows = stmt.query([user_id])?;
+
+        if let Some(row) = rows.next()? {
+            Ok(Some(UserMemoryRecord {
+                summary: row.get(0)?,
+                enabled: row.get(1)?,
+                updated_at: row.get(2)?,
+                expires_at: row.get(3)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn set_user_memory_enabled(&self, user_id: &str, enabled: bool) -> anyhow::Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "INSERT INTO user_memory (user_id, summary, enabled, updated_at)
+             VALUES (?1, '', ?2, CURRENT_TIMESTAMP)
+             ON CONFLICT(user_id) DO UPDATE SET
+                 enabled = ?2,
+                 updated_at = CURRENT_TIMESTAMP",
+            (user_id, enabled),
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_user_memory(&self, user_id: &str) -> anyhow::Result<usize> {
+        let conn = self.lock_conn()?;
+        let count = conn.execute("DELETE FROM user_memory WHERE user_id = ?1", [user_id])?;
+        Ok(count)
+    }
+
+    pub fn cleanup_expired_user_memory(&self) -> anyhow::Result<usize> {
+        let conn = self.lock_conn()?;
+        let count = conn.execute(
+            "DELETE FROM user_memory
+             WHERE expires_at IS NOT NULL
+               AND expires_at < CURRENT_TIMESTAMP",
+            [],
+        )?;
+        Ok(count)
+    }
+
     pub fn purge_messages(
         &self,
         channel_id: &str,
@@ -717,6 +818,57 @@ impl Database {
         } else {
             conn.execute("DELETE FROM messages WHERE channel_id = ?1", (channel_id,))?
         };
+        Ok(count)
+    }
+
+    pub fn purge_messages_by_user(&self, user_id: &str) -> anyhow::Result<usize> {
+        let conn = self.lock_conn()?;
+        let count = conn.execute("DELETE FROM messages WHERE user_id = ?1", [user_id])?;
+        Ok(count)
+    }
+
+    pub fn get_channels_for_user(&self, user_id: &str) -> anyhow::Result<Vec<String>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT channel_id
+             FROM messages
+             WHERE user_id = ?1",
+        )?;
+        let rows = stmt.query_map([user_id], |row| row.get(0))?;
+        let mut channels = Vec::new();
+        for row in rows {
+            channels.push(row?);
+        }
+        Ok(channels)
+    }
+
+    pub fn delete_channel_summaries(&self, channels: &[String]) -> anyhow::Result<usize> {
+        if channels.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.lock_conn()?;
+        let mut sql = String::from("DELETE FROM channel_summaries WHERE channel_id IN (");
+        sql.push_str(&vec!["?"; channels.len()].join(", "));
+        sql.push(')');
+
+        let params: Vec<&dyn rusqlite::ToSql> =
+            channels.iter().map(|c| c as &dyn rusqlite::ToSql).collect();
+        let count = conn.execute(&sql, params.as_slice())?;
+        Ok(count)
+    }
+
+    pub fn delete_channel_milestones(&self, channels: &[String]) -> anyhow::Result<usize> {
+        if channels.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.lock_conn()?;
+        let mut sql = String::from("DELETE FROM channel_milestones WHERE channel_id IN (");
+        sql.push_str(&vec!["?"; channels.len()].join(", "));
+        sql.push(')');
+
+        let params: Vec<&dyn rusqlite::ToSql> =
+            channels.iter().map(|c| c as &dyn rusqlite::ToSql).collect();
+        let count = conn.execute(&sql, params.as_slice())?;
         Ok(count)
     }
 
@@ -746,7 +898,12 @@ impl Database {
         filter.limit = limit;
 
         if embedding.is_empty() {
-            let results = self.search_messages_keyword(query, &filter)?;
+            let db = self.clone();
+            let query = query.to_string();
+            let filter = filter.clone();
+            let results =
+                tokio::task::spawn_blocking(move || db.search_messages_keyword(&query, &filter))
+                    .await??;
             debug!(
                 "Database: Keyword search returned {} results",
                 results.len()
@@ -1357,5 +1514,44 @@ mod tests {
 
         assert!(results.iter().any(|r| r.content == "alpha"));
         assert!(results.iter().any(|r| r.content == "hello world"));
+    }
+
+    #[test]
+    fn test_user_channel_cleanup_helpers() {
+        let config = test_config();
+        let db = Database::new(&config).unwrap();
+        db.execute_init().unwrap();
+
+        db.save_message("1", "g1", "c1", "u1", "hello", 1700000000)
+            .unwrap();
+        db.save_message("2", "g1", "c2", "u1", "hi", 1700000001)
+            .unwrap();
+        db.save_message("3", "g1", "c3", "u2", "other", 1700000002)
+            .unwrap();
+
+        let mut channels = db.get_channels_for_user("u1").unwrap();
+        channels.sort();
+        assert_eq!(channels, vec!["c1".to_string(), "c2".to_string()]);
+
+        db.save_summary("c1", "summary 1").unwrap();
+        db.save_summary("c2", "summary 2").unwrap();
+        db.save_summary("c3", "summary 3").unwrap();
+
+        db.replace_channel_milestones(
+            "c1",
+            &vec!["milestone 1".to_string(), "milestone 2".to_string()],
+        )
+        .unwrap();
+        db.replace_channel_milestones("c2", &vec!["milestone 3".to_string()])
+            .unwrap();
+
+        let summaries_deleted = db.delete_channel_summaries(&channels).unwrap();
+        assert_eq!(summaries_deleted, 2);
+
+        let milestones_deleted = db.delete_channel_milestones(&channels).unwrap();
+        assert!(milestones_deleted >= 3);
+
+        let remaining = db.get_latest_summary("c3").unwrap();
+        assert!(remaining.is_some());
     }
 }

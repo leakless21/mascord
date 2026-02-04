@@ -64,9 +64,10 @@ pub async fn search(
     let mut response = String::from("**Search Results:**\n");
     for (i, msg) in results.iter().enumerate() {
         response.push_str(&format!(
-            "{}. [{}] <@{}>: {}\n",
+            "{}. [{}] <#{}> <@{}>: {}\n",
             i + 1,
             msg.timestamp,
+            msg.channel_id,
             msg.user_id,
             msg.content
         ));

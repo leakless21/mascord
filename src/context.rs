@@ -20,6 +20,37 @@ use tracing::{debug, warn};
 pub struct ConversationContext;
 
 impl ConversationContext {
+    /// Async wrapper around `get_context_for_channel` to offload DB work from the async runtime.
+    pub async fn get_context_for_channel_async(
+        cache: MessageCache,
+        db: Database,
+        config: Config,
+        channel_id: ChannelId,
+        guild_id: Option<u64>,
+        bot_id: Option<u64>,
+        exclude_message_id: Option<u64>,
+    ) -> Vec<ChatCompletionRequestMessage> {
+        tokio::task::spawn_blocking(move || {
+            Self::get_context_for_channel(
+                &cache,
+                &db,
+                &config,
+                channel_id,
+                guild_id,
+                bot_id,
+                exclude_message_id,
+            )
+        })
+        .await
+        .unwrap_or_else(|e| {
+            warn!(
+                "Context: Failed to fetch context for channel {}: {}",
+                channel_id, e
+            );
+            Vec::new()
+        })
+    }
+
     /// Retrieves recent channel messages and formats them for LLM context
     ///
     /// Messages are filtered by:
@@ -59,29 +90,39 @@ impl ConversationContext {
             Some((Utc::now() - Duration::hours(retention as i64)).timestamp())
         };
 
-        // 0. Check Channel Specific Settings (Scope)
+        // 0. Check Channel Specific Settings (Enabled + Scope)
         match db.get_channel_settings(&channel_id.to_string()) {
-            Ok(Some((_enabled, Some(scope_date)))) => {
-                // If we have a memory start date, use it if it's MORE RECENT than the retention cutoff
-                let scope_date_clone = scope_date.clone();
-                if let Ok(scope_ts) = chrono::DateTime::parse_from_str(
-                    &format!("{} +0000", scope_date),
-                    "%Y-%m-%d %H:%M:%S %z",
-                ) {
-                    let scope_unix = scope_ts.timestamp();
-                    let should_update = cutoff_unix.is_none_or(|cutoff| scope_unix > cutoff);
-                    if should_update {
-                        debug!(
-                            "Context: Respecting memory scope for channel {}: messages after {}",
-                            channel_id, scope_date_clone
-                        );
-                        cutoff_unix = Some(scope_unix);
-                    }
-                } else {
-                    warn!(
-                        "Context: Invalid memory scope date '{}' for channel {}",
-                        scope_date_clone, channel_id
+            Ok(Some((enabled, scope_date))) => {
+                if !enabled {
+                    debug!(
+                        "Context: Channel {} memory disabled; skipping context",
+                        channel_id
                     );
+                    return Vec::new();
+                }
+
+                if let Some(scope_date) = scope_date {
+                    // If we have a memory start date, use it if it's MORE RECENT than the retention cutoff
+                    let scope_date_clone = scope_date.clone();
+                    if let Ok(scope_ts) = chrono::DateTime::parse_from_str(
+                        &format!("{} +0000", scope_date),
+                        "%Y-%m-%d %H:%M:%S %z",
+                    ) {
+                        let scope_unix = scope_ts.timestamp();
+                        let should_update = cutoff_unix.is_none_or(|cutoff| scope_unix > cutoff);
+                        if should_update {
+                            debug!(
+                                "Context: Respecting memory scope for channel {}: messages after {}",
+                                channel_id, scope_date_clone
+                            );
+                            cutoff_unix = Some(scope_unix);
+                        }
+                    } else {
+                        warn!(
+                            "Context: Invalid memory scope date '{}' for channel {}",
+                            scope_date_clone, channel_id
+                        );
+                    }
                 }
             }
             Ok(_) => {}

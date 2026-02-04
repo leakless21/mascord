@@ -26,7 +26,10 @@
 - **User Memory (Opt-in)**:
   - Allow users to explicitly opt-in to a personal, curated memory profile (preferences, ongoing projects).
   - Provide commands to view, edit, and delete user memory.
-  - Keep user memory scoped to a guild by default; allow DM-only memory for private use.
+  - Store a **global** user memory profile (applies across servers and DMs).
+  - Inject a short memory snippet into prompts; allow the agent to fetch full details via a tool when needed.
+  - Automatically update memory when enabled, using guardrails to avoid sensitive data.
+  - Support temporary no-memory requests via natural language cues (do not use or update memory).
   - Support retention policies (TTL/expiry) and hard-delete on request.
 
 ### 3. RAG (Retrieval-Augmented Generation)

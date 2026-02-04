@@ -49,5 +49,13 @@ CREATE TABLE IF NOT EXISTS channel_milestones (
 );
 CREATE INDEX IF NOT EXISTS idx_milestones_channel_created ON channel_milestones (channel_id, created_at);
 
+CREATE TABLE IF NOT EXISTS user_memory (
+    user_id TEXT PRIMARY KEY,
+    summary TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT TRUE,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME
+);
+
 -- Note: sqlite-vec setup usually involves virtual tables.
 -- Mascord currently uses in-process Rust vector scoring over BLOB embeddings.

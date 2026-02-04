@@ -131,6 +131,36 @@ impl MessageCache {
 
         expired_set.len()
     }
+
+    /// Remove cached messages authored by a specific user.
+    /// Returns the number of messages removed.
+    pub fn purge_user_messages(&self, user_id: u64) -> usize {
+        let mut cache = self.lock_cache();
+        let mut removed = Vec::new();
+
+        for (key, msg) in cache.iter() {
+            if msg.author.id.get() == user_id {
+                removed.push(key.clone());
+            }
+        }
+
+        for key in &removed {
+            cache.pop(key);
+        }
+        drop(cache);
+
+        if removed.is_empty() {
+            return 0;
+        }
+
+        let removed_set: HashSet<String> = removed.into_iter().collect();
+        let mut index = self.lock_index();
+        for queue in index.values_mut() {
+            queue.retain(|id| !removed_set.contains(id));
+        }
+
+        removed_set.len()
+    }
 }
 
 #[cfg(test)]

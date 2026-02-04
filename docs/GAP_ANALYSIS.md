@@ -1,7 +1,7 @@
 # Gap Analysis: Mascord Discord Bot
 
 This document tracks identified gaps, edge cases, and potential issues requiring remediation.
-Last reviewed: February 4, 2026 (user-memory gaps, async DB blocking risk, and data handling controls reviewed).
+Last reviewed: February 4, 2026 (auto memory updates, no-memory mode, and deletion completeness reviewed).
 
 ## Legend
 
@@ -210,17 +210,17 @@ Last reviewed: February 4, 2026 (user-memory gaps, async DB blocking risk, and d
 
 ### GAP-022: No User-Scoped Memory (Opt-in) 🟡
 
-**Status**: Open
-**Description**: The bot supports channel-scoped memory, but has no opt-in per-user memory profile or preference store.
-**Impact**: Limits "assistant" behavior for individual users and forces all memory to be channel-level.
-**Resolution**: Add a user memory service with opt-in, user-controlled CRUD commands, and scoped injection.
+**Status**: Resolved ✅
+**Description**: The bot supports channel-scoped memory, but had no opt-in per-user memory profile or preference store.
+**Impact**: Limited assistant behavior for individual users and forced all memory to be channel-level.
+**Resolution**: Added global user memory with opt-in `/memory` commands and prompt injection.
 
 ### GAP-023: No Per-User Data Deletion 🟡
 
-**Status**: Open
-**Description**: Current purge controls are channel-based; there is no "delete my data" path for a specific user.
+**Status**: Resolved ✅
+**Description**: Current purge controls were channel-based; there was no "delete my data" path for a specific user.
 **Impact**: Harder to meet user expectations and platform data-handling requirements.
-**Resolution**: Add per-user purge (messages + memory) and a self-service delete command.
+**Resolution**: Added `/memory delete_data` to purge user messages and memory.
 
 ### GAP-024: No Documented Data Security (At-Rest) 🟡
 
@@ -229,16 +229,23 @@ Last reviewed: February 4, 2026 (user-memory gaps, async DB blocking risk, and d
 **Impact**: Potential compliance and security risk for stored user data.
 **Resolution**: Document security controls and consider DB encryption or OS-level encryption.
 
+### GAP-027: Deletion Completeness (Summaries/Milestones) 🟡
+
+**Status**: Resolved ✅
+**Description**: Deleting a user’s data removed messages but left channel summaries/milestones that might contain aggregated references.
+**Impact**: Residual user data could persist in summarized artifacts.
+**Resolution**: Purge channel summaries and milestones for affected channels on user delete.
+
 ---
 
 ## 10. Performance & Architecture
 
 ### GAP-025: Blocking SQLite Calls on Async Runtime 🟡
 
-**Status**: Open
-**Description**: Many SQLite calls are executed directly in async contexts without `spawn_blocking`.
+**Status**: Resolved ✅
+**Description**: Many SQLite calls were executed directly in async contexts without `spawn_blocking`.
 **Impact**: Potential latency spikes or event loop stalls under load.
-**Resolution**: Wrap DB calls in `spawn_blocking` or move to an async DB layer/pool.
+**Resolution**: Added `Database::run_blocking` and wrapped hot-path DB calls.
 
 ### GAP-026: Commands Bypass Service Layer 🟢
 
@@ -264,6 +271,10 @@ Last reviewed: February 4, 2026 (user-memory gaps, async DB blocking risk, and d
 - [x] **GAP-017**: Bot Hangs on Startup Rate Limit (Phase 5)
 - [x] **GAP-019**: Missing Cookie File Validation (Phase 6)
 - [x] **GAP-020**: Command Errors Not Surfaced (Phase 6)
+- [x] **GAP-022**: No User-Scoped Memory (Opt-in)
+- [x] **GAP-023**: No Per-User Data Deletion
+- [x] **GAP-025**: Blocking SQLite Calls on Async Runtime
+- [x] **GAP-027**: Deletion Completeness (Summaries/Milestones)
 
 ---
 

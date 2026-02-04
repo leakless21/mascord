@@ -52,7 +52,11 @@ impl SummarizationManager {
         info!("Starting summarization for channel: {}", channel_id);
 
         let now = Utc::now();
-        let record = self.db.get_summary_record(channel_id)?;
+        let channel_id_str = channel_id.to_string();
+        let record = self
+            .db
+            .run_blocking(move |db| db.get_summary_record(&channel_id_str))
+            .await?;
 
         let refresh_due = record
             .as_ref()
@@ -73,11 +77,17 @@ impl SummarizationManager {
             now - Duration::days(days)
         };
 
-        let messages = self.db.get_recent_messages(channel_id, from_ts, 200)?;
+        let channel_id_str = channel_id.to_string();
+        let messages = self
+            .db
+            .run_blocking(move |db| db.get_recent_messages(&channel_id_str, from_ts, 200))
+            .await?;
 
+        let channel_id_str = channel_id.to_string();
         let milestones = self
             .db
-            .get_channel_milestones(channel_id, 20)
+            .run_blocking(move |db| db.get_channel_milestones(&channel_id_str, 20))
+            .await
             .unwrap_or_default();
 
         if messages.is_empty() {
@@ -110,14 +120,29 @@ impl SummarizationManager {
 
         // 4. Save to DB
         if refresh_due {
-            self.db.save_summary_refresh(channel_id, &summary)?;
+            let channel_id_str = channel_id.to_string();
+            let summary_clone = summary.clone();
+            self.db
+                .run_blocking(move |db| db.save_summary_refresh(&channel_id_str, &summary_clone))
+                .await?;
         } else {
-            self.db.save_summary(channel_id, &summary)?;
+            let channel_id_str = channel_id.to_string();
+            let summary_clone = summary.clone();
+            self.db
+                .run_blocking(move |db| db.save_summary(&channel_id_str, &summary_clone))
+                .await?;
         }
 
         if let Ok(milestones) = self.extract_milestones(&summary).await {
             if !milestones.is_empty() {
-                if let Err(e) = self.db.replace_channel_milestones(channel_id, &milestones) {
+                let channel_id_str = channel_id.to_string();
+                if let Err(e) = self
+                    .db
+                    .run_blocking(move |db| {
+                        db.replace_channel_milestones(&channel_id_str, &milestones)
+                    })
+                    .await
+                {
                     warn!(
                         "Failed to persist milestones for channel {}: {}",
                         channel_id, e
@@ -138,7 +163,11 @@ impl SummarizationManager {
 
     pub async fn should_summarize_channel(&self, channel_id: &str) -> anyhow::Result<bool> {
         let now = Utc::now();
-        let record = self.db.get_summary_record(channel_id)?;
+        let channel_id_str = channel_id.to_string();
+        let record = self
+            .db
+            .run_blocking(move |db| db.get_summary_record(&channel_id_str))
+            .await?;
 
         let refresh_due = record
             .as_ref()
@@ -151,10 +180,18 @@ impl SummarizationManager {
             let since = (now - Duration::hours(24))
                 .format("%Y-%m-%d %H:%M:%S")
                 .to_string();
-            self.db.count_channel_messages_since(channel_id, &since)?
-        } else {
+            let channel_id_str = channel_id.to_string();
             self.db
-                .count_channel_messages_since(channel_id, updated_at)?
+                .run_blocking(move |db| db.count_channel_messages_since(&channel_id_str, &since))
+                .await?
+        } else {
+            let channel_id_str = channel_id.to_string();
+            let updated_at = updated_at.to_string();
+            self.db
+                .run_blocking(move |db| {
+                    db.count_channel_messages_since(&channel_id_str, &updated_at)
+                })
+                .await?
         };
 
         // Initial summaries: require a little more activity to avoid spammy summaries.

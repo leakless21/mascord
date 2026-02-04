@@ -47,7 +47,13 @@ Also from Developer Portal:
 - General Information tab
 - Set in `.env`: `APPLICATION_ID=123456789`
 
-### 3. LLAMA_URL (Optional but Recommended)
+### 3. Message Content Intent
+
+Enable **Message Content Intent** in the Discord Developer Portal:
+- Application → **Bot** → **Privileged Gateway Intents**
+- Required for reading message content (mentions/replies, memory, RAG), and mandatory once the bot is in 100+ servers.
+
+### 4. LLAMA_URL (Optional but Recommended)
 
 Choose one:
 

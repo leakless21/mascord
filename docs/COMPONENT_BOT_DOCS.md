@@ -70,7 +70,14 @@ Uses Poise's shared `Data` struct (thread-safe, wrapped in `Arc` by the framewor
 
 Commands restricted to the bot owner use the `owner_id` check from `src/config.rs`. Sensitive configuration fields (tokens, API keys) are redacted in `Debug` logs via a custom implementation in `src/config.rs`.
 
-## Planned Additions
+## User Memory (Opt-in)
 
-- **User Memory (Opt-in)**: Add commands for users to enable, view, edit, and delete their personal memory profile.
-- **Service Layer**: Route commands through services instead of direct database calls to preserve architecture boundaries.
+- **Commands**: `/memory enable|disable|show|remember|forget|delete_data`.
+- **Scope**: Global per-user profile (applies across servers and DMs).
+- **Storage**: `user_memory` table with optional expiry and explicit opt-in.
+- **Prompting**: Injects a short snippet into prompts; full detail available via `get_user_memory` tool.
+- **Auto-update**: When enabled, memory updates automatically from user messages unless a temporary no-memory request is detected.
+
+## Remaining Architectural Gap
+
+- **Service Layer**: Expand service usage beyond user memory so commands don’t call the database directly.

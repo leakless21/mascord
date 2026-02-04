@@ -10,6 +10,7 @@ pub mod mcp;
 pub mod mention;
 pub mod rag;
 pub mod reply;
+pub mod services;
 pub mod summarize;
 pub mod tools;
 pub mod voice;

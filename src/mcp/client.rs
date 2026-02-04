@@ -140,11 +140,9 @@ impl McpClientManager {
             );
             // Add timeout to prevent hanging on unresponsive MCP servers
             let discovery_timeout = tokio::time::Duration::from_secs(self.timeout_secs);
-            let tools_result = tokio::time::timeout(
-                discovery_timeout,
-                service.list_all_tools()
-            ).await;
-            
+            let tools_result =
+                tokio::time::timeout(discovery_timeout, service.list_all_tools()).await;
+
             match tools_result {
                 Ok(Ok(tools)) => {
                     debug!(
@@ -154,7 +152,8 @@ impl McpClientManager {
                     );
                     for tool in tools {
                         // In rmcp 0.14+, description is Option<Cow>
-                        let desc = tool.description
+                        let desc = tool
+                            .description
                             .as_ref()
                             .map(|d| d.to_string())
                             .unwrap_or_else(|| "(no description)".to_string());
@@ -173,13 +172,15 @@ impl McpClientManager {
                 Ok(Err(e)) => {
                     tracing::warn!(
                         "MCP client: Failed to discover tools from server '{}': {}",
-                        server_name, e
+                        server_name,
+                        e
                     );
                 }
                 Err(_) => {
                     tracing::warn!(
                         "MCP client: Tool discovery timed out for server '{}' after {}s",
-                        server_name, self.timeout_secs
+                        server_name,
+                        self.timeout_secs
                     );
                 }
             }

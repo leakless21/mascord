@@ -84,12 +84,12 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 - **Interface**: `src/mention.rs`.
 - **Dependencies**: `src/commands/chat.rs`, `src/llm/agent.rs`.
 
-### 12. User Memory Service (Planned)
+### 12. User Memory Service
 
 - **Responsibility**: Store opt-in, curated per-user memory (preferences, projects) and inject it into prompts when relevant.
-- **Storage**: SQLite table for user memory summaries with update timestamps and scope (guild/DM).
-- **Interface**: New user memory commands and a small service layer to read/write memories.
-- **Dependencies**: `src/db/mod.rs`, `src/context.rs`, `src/commands/`.
+- **Storage**: SQLite table for **global** user memory summaries with update timestamps and optional expiry.
+- **Interface**: `/memory` commands backed by a lightweight service layer (`src/services/user_memory.rs`); short snippets are injected into prompts and full detail is available via a tool. Memory auto-updates when enabled, with a temporary no-memory override for specific requests.
+- **Dependencies**: `src/db/mod.rs`, `src/commands/`.
 
 ## Error Handling & Surfacing
 
@@ -123,7 +123,7 @@ The `Config` struct in `src/config.rs` is responsible for merging these sources 
   - `channel_summaries`: Condensed Working Memory snapshots (channel_id, summary, updated_at).
   - `channel_settings`: Per-channel memory control (guild_id, channel_id, enabled, memory_start_date).
   - `settings`: Per-server configurations (context limits, system prompt, agent confirmation timeout, voice idle timeout).
-  - `user_memory` (planned): Opt-in user memory summaries (guild_id, user_id, summary, updated_at, scope).
+  - `user_memory`: Global opt-in user memory summaries (user_id, summary, enabled, updated_at, expires_at).
 
 ## Interfaces
 

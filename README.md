@@ -91,6 +91,12 @@ Fill in the following essential variables:
 > [!TIP]
 > Many more settings (timeouts, retention policies, YouTube settings, etc.) are available! Check the [`.env.example`](.env.example) file for the full list of configurable options.
 
+#### Discord Message Content Intent
+
+Enable **Message Content Intent** in the Discord Developer Portal:
+**Application → Bot → Privileged Gateway Intents**.  
+This is required for mention/reply handling and message memory, and is mandatory once the bot is in 100+ servers.
+
 #### Environment Variable Reference (Commented)
 Below is a commented reference you can copy into `.env` as needed:
 ```bash

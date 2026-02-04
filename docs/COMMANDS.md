@@ -124,6 +124,56 @@ Delete old messages from this channel's history.
 
 ---
 
+### `/memory [enable|disable|show|remember|forget|delete_data]`
+
+**Description**: Manage your **global, opt-in** user memory profile (applies across servers and DMs).
+
+**Subcommands**:
+
+#### `/memory enable`
+Enable your global memory profile.
+
+```
+/memory enable
+```
+
+#### `/memory disable`
+Disable your global memory profile (keeps stored data).
+
+```
+/memory disable
+```
+
+#### `/memory show`
+View your current memory profile and expiry status.
+
+```
+/memory show
+```
+
+#### `/memory remember [summary] [ttl_days]`
+Create or replace your memory profile. `ttl_days` is optional.
+
+```
+/memory remember "I prefer concise answers and work in Rust." 90
+```
+
+#### `/memory forget`
+Delete your memory profile only.
+
+```
+/memory forget
+```
+
+#### `/memory delete_data`
+Delete your stored messages and memory profile (global).
+
+```
+/memory delete_data
+```
+
+---
+
 ## Music Commands
 
 ### `/play [url|search_term]`
@@ -320,6 +370,7 @@ Show bot status and statistics.
 ### 🔍 Memory & Search
 - `/search` - Query message history
 - `/rag enable/disable/status/purge` - Manage long-term memory
+- `/memory enable/disable/show/remember/forget/delete_data` - Manage your global user memory
 
 ### 🎵 Music
 - `/play` - Play audio from URL or search
@@ -338,6 +389,8 @@ Show bot status and statistics.
 ---
 
 ## Tips & Tricks
+
+- Want a one-off response without memory? Say things like **"no memory this time"** or **"temporary mode"** in your request.
 
 ### Combine Commands
 
