@@ -57,7 +57,16 @@
 - Basic controls: Pause, Resume, Skip, Stop, Queue list.
 - Songbird-based native implementation for low footprint.
 
-### 5. Natural Language Task Execution (Agent)
+### 5. Reminders
+
+- Allow users to set one-time reminders with human-friendly durations (e.g., minutes/hours/days).
+- Persist reminders in SQLite so they survive restarts.
+- Deliver reminders in the originating channel and mention the requesting user.
+- Prevent mass mentions (`@everyone`, roles) from reminder text.
+- Provide commands to list and cancel pending reminders.
+- Throttle reminder dispatching to avoid Discord API rate limits.
+
+### 6. Natural Language Task Execution (Agent)
 
 - Orchestrate complex tasks using natural language.
 - Execute built-in tools (Music, RAG, Admin).
@@ -66,14 +75,14 @@
 - Configurable iteration limits and safety checks.
 
 
-### 6. Administration & Security
+### 7. Administration & Security
 
 - Admin-only commands restricted by `OWNER_ID`.
 - Secure handling of API keys for LLM and Embedding services.
 - Graceful shutdown triggered by authorized users.
 - Provide a user-facing mechanism to delete their stored data (messages and user memory) on request.
 
-### 7. Configuration & Deployment
+### 8. Configuration & Deployment
 
 - The bot must provide sensible defaults for all configuration variables (LLM URLs, ports, prompts) to ensure "zero-config" functionality beyond Discord credentials.
 - All configuration should be overrideable via environment variables or a `.env` file.

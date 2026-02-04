@@ -12,6 +12,7 @@ General bot setup, command registration, and event lifecycle management.
 - `src/reply.rs`: Reply-to-bot message handler (auto-chat).
 - `src/mention.rs`: Mention/tag message handler (auto-chat).
 - `src/summarize.rs`: Background summarization manager (rolling summary with caps, refresh, milestones).
+- `src/reminders.rs`: Background reminder dispatcher.
 
 ## Configuration & Environment
 
@@ -33,6 +34,8 @@ The bot is configured via environment variables (see `.env.example`). If a varia
 - `SUMMARIZATION_INTERVAL_SECS`: (Default: `3600`) Summarization scheduler tick interval.
 - `SUMMARIZATION_MAX_TOKENS`: (Default: `1200`) Hard cap for stored channel summaries (approximate).
 - `CONTEXT_RETENTION_HOURS`: (Default: `24`) Short-term time filter; set to `0` to disable time filtering and rely on message count.
+- `REMINDER_POLL_INTERVAL_SECS`: (Default: `30`) Reminder dispatcher polling interval.
+- `REMINDER_BATCH_SIZE`: (Default: `25`) Max reminders sent per poll cycle.
 
 Selected settings can also be overridden per guild using `/settings` commands. These overrides are stored in SQLite and take precedence over environment defaults for that server:
 

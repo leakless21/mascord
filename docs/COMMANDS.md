@@ -174,6 +174,44 @@ Delete your stored messages and memory profile (global).
 
 ---
 
+## Reminder Commands
+
+### `/reminder [set|list|cancel]`
+
+**Description**: Create and manage one-time reminders.
+
+**Subcommands**:
+
+#### `/reminder set [when] [message]`
+Set a reminder using a human-friendly duration.
+
+```
+/reminder set 10m "Stretch break"
+/reminder set 2h "Check the deployment"
+/reminder set 1d 2h "Follow up with the team"
+```
+
+#### `/reminder list [limit]`
+List upcoming reminders (default 10, max 20).
+
+```
+/reminder list
+/reminder list 5
+```
+
+#### `/reminder cancel [id]`
+Cancel a pending reminder by ID (from `/reminder list`).
+
+```
+/reminder cancel 42
+```
+
+**Related Settings**:
+- `REMINDER_POLL_INTERVAL_SECS` - Dispatcher polling interval
+- `REMINDER_BATCH_SIZE` - Max reminders sent per poll cycle
+
+---
+
 ## Music Commands
 
 ### `/play [url|search_term]`

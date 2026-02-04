@@ -199,6 +199,31 @@ Last reviewed: February 4, 2026 (auto memory updates, no-memory mode, and deleti
 
 ### GAP-021: macOS Support Not Documented or Validated 🟡
 
+---
+
+## 9. Reminders
+
+### GAP-022: Recurring Reminders Not Supported 🟢
+
+**Status**: Open (Documented Limitation)
+**Description**: Reminders are one-time only; no repeat rules (daily/weekly).
+**Impact**: Users must recreate recurring reminders manually.
+**Resolution**: Add optional recurrence rules with a next-run scheduler update.
+
+### GAP-023: Delivered Reminder Cleanup Missing 🟢
+
+**Status**: Open
+**Description**: Delivered reminders are retained indefinitely.
+**Impact**: Database can grow over time in long-lived deployments.
+**Resolution**: Add retention policy (e.g., auto-delete delivered reminders older than N days).
+
+### GAP-024: Absolute Date/Timezone Input Not Supported 🟢
+
+**Status**: Open (Documented Limitation)
+**Description**: Reminders only accept relative durations; no explicit date/time with timezone.
+**Impact**: Users must convert absolute times into durations manually.
+**Resolution**: Add timezone profiles per user and accept absolute date/time input.
+
 **Status**: Open
 **Description**: macOS is not listed as a supported platform, and there is no CI or documented validation of macOS builds/runtime behavior.
 **Impact**: macOS users may hit build or runtime issues without clear guidance; support expectations are unclear.

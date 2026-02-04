@@ -91,6 +91,13 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 - **Interface**: `/memory` commands backed by a lightweight service layer (`src/services/user_memory.rs`); short snippets are injected into prompts and full detail is available via a tool. Memory auto-updates when enabled, with a temporary no-memory override for specific requests.
 - **Dependencies**: `src/db/mod.rs`, `src/commands/`.
 
+### 13. Reminder Scheduler
+
+- **Responsibility**: Persist and dispatch user-created reminders on schedule.
+- **Interface**: `src/reminders.rs`, `src/services/reminder.rs`, `/reminder` commands.
+- **Storage**: SQLite `reminders` table (pending + delivered timestamps).
+- **Dependencies**: `src/db/mod.rs`, Discord HTTP API.
+
 ## Error Handling & Surfacing
 
 - **Command errors**: Centralized Poise `on_error` handler logs full details and sends a user-facing error message.
@@ -139,6 +146,8 @@ graph LR
         ReplyHandler --> Agent
         Framework --> MentionHandler[Mention Handler - src/mention.rs]
         MentionHandler --> Agent
+        Framework --> ReminderCmd[/reminder Command]
+        ReminderCmd --> ReminderSvc[Reminder Service]
         Framework --> Voice[Voice Service - src/voice/]
         Framework --> RAG[RAG Service - src/rag/]
         Framework --> Cache[Caching Layer - src/cache.rs]
@@ -149,6 +158,8 @@ graph LR
     LLM <--> LlamaServer[llama.cpp Server]
     Voice --> YTDLP[yt-dlp]
     RAG <--> DB[(SQLite)]
+    ReminderSvc <--> DB
+    ReminderSvc --> Discord
     Cache <--> Discord
     Tools --> Builtin[Built-in Tools]
     MCP <--> MCPServers[External MCP Servers]

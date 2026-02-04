@@ -110,6 +110,17 @@ pub struct UserMemoryRecord {
     pub expires_at: Option<String>,
 }
 
+pub struct ReminderRecord {
+    pub id: i64,
+    pub guild_id: String,
+    pub channel_id: String,
+    pub user_id: String,
+    pub message: String,
+    pub remind_at: String,
+    pub created_at: String,
+    pub delivered_at: Option<String>,
+}
+
 impl Database {
     pub fn new(config: &Config) -> anyhow::Result<Self> {
         let conn = Connection::open(&config.database_url)
@@ -197,6 +208,19 @@ impl Database {
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 expires_at DATETIME
             );
+
+            CREATE TABLE IF NOT EXISTS reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id TEXT NOT NULL,
+                channel_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                message TEXT NOT NULL,
+                remind_at DATETIME NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                delivered_at DATETIME
+            );
+            CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders (remind_at, delivered_at);
+            CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders (user_id, delivered_at);
             ",
         )
         .context("Failed to initialize database schema")?;
@@ -802,6 +826,112 @@ impl Database {
             [],
         )?;
         Ok(count)
+    }
+
+    // --- Reminders ---
+
+    pub fn create_reminder(
+        &self,
+        guild_id: &str,
+        channel_id: &str,
+        user_id: &str,
+        message: &str,
+        remind_at: &str,
+    ) -> anyhow::Result<i64> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "INSERT INTO reminders (guild_id, channel_id, user_id, message, remind_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (guild_id, channel_id, user_id, message, remind_at),
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn list_pending_reminders_for_user(
+        &self,
+        user_id: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<ReminderRecord>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, guild_id, channel_id, user_id, message, remind_at, created_at, delivered_at
+             FROM reminders
+             WHERE user_id = ?1 AND delivered_at IS NULL
+             ORDER BY remind_at ASC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map((user_id, limit as i64), |row| {
+            Ok(ReminderRecord {
+                id: row.get(0)?,
+                guild_id: row.get(1)?,
+                channel_id: row.get(2)?,
+                user_id: row.get(3)?,
+                message: row.get(4)?,
+                remind_at: row.get(5)?,
+                created_at: row.get(6)?,
+                delivered_at: row.get(7)?,
+            })
+        })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
+    }
+
+    pub fn delete_pending_reminder(
+        &self,
+        reminder_id: i64,
+        user_id: &str,
+    ) -> anyhow::Result<usize> {
+        let conn = self.lock_conn()?;
+        let count = conn.execute(
+            "DELETE FROM reminders
+             WHERE id = ?1 AND user_id = ?2 AND delivered_at IS NULL",
+            (reminder_id, user_id),
+        )?;
+        Ok(count)
+    }
+
+    pub fn get_due_reminders(&self, limit: usize) -> anyhow::Result<Vec<ReminderRecord>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, guild_id, channel_id, user_id, message, remind_at, created_at, delivered_at
+             FROM reminders
+             WHERE delivered_at IS NULL AND remind_at <= CURRENT_TIMESTAMP
+             ORDER BY remind_at ASC
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map([limit as i64], |row| {
+            Ok(ReminderRecord {
+                id: row.get(0)?,
+                guild_id: row.get(1)?,
+                channel_id: row.get(2)?,
+                user_id: row.get(3)?,
+                message: row.get(4)?,
+                remind_at: row.get(5)?,
+                created_at: row.get(6)?,
+                delivered_at: row.get(7)?,
+            })
+        })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
+    }
+
+    pub fn mark_reminder_delivered(&self, reminder_id: i64) -> anyhow::Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "UPDATE reminders
+             SET delivered_at = CURRENT_TIMESTAMP
+             WHERE id = ?1 AND delivered_at IS NULL",
+            [reminder_id],
+        )?;
+        Ok(())
     }
 
     pub fn purge_messages(

@@ -57,5 +57,18 @@ CREATE TABLE IF NOT EXISTS user_memory (
     expires_at DATETIME
 );
 
+CREATE TABLE IF NOT EXISTS reminders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    message TEXT NOT NULL,
+    remind_at DATETIME NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    delivered_at DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders (remind_at, delivered_at);
+CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders (user_id, delivered_at);
+
 -- Note: sqlite-vec setup usually involves virtual tables.
 -- Mascord currently uses in-process Rust vector scoring over BLOB embeddings.

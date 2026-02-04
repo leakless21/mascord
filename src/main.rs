@@ -1,5 +1,5 @@
 use anyhow::Context as AnyhowContext;
-use mascord::commands::{admin, chat, mcp, memory, music, rag, settings};
+use mascord::commands::{admin, chat, mcp, memory, music, rag, reminder, settings};
 use mascord::{config::Config, Data};
 use poise::serenity_prelude as serenity;
 use serenity::all::Http;
@@ -101,6 +101,7 @@ async fn main() -> anyhow::Result<()> {
                 music::skip(),
                 music::leave(),
                 music::queue(),
+                reminder::reminder(),
                 admin::shutdown(),
                 admin::restart(),
                 mcp::mcp(),
@@ -452,6 +453,22 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }
                     }
+                });
+
+                // Start reminder dispatcher (polls for due reminders).
+                let reminder_service = mascord::services::reminder::ReminderService::new(db.clone());
+                let reminder_http = ctx.http.clone();
+                let reminder_poll_secs = config.reminder_poll_interval_secs;
+                let reminder_batch_size = config.reminder_batch_size;
+                tokio::spawn(async move {
+                    mascord::reminders::ReminderDispatcher::new(
+                        reminder_service,
+                        reminder_http,
+                        reminder_poll_secs,
+                        reminder_batch_size,
+                    )
+                    .run()
+                    .await;
                 });
 
                 if config.embedding_indexer_enabled {

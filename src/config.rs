@@ -55,6 +55,10 @@ pub struct Config {
     pub summarization_refresh_weeks: i64,
     pub summarization_refresh_days_lookback: i64,
 
+    // Reminder scheduler settings
+    pub reminder_poll_interval_secs: u64,
+    pub reminder_batch_size: usize,
+
     // Long-term retention (RAG store)
     pub long_term_retention_days: u64,
 }
@@ -203,6 +207,14 @@ impl Config {
                 .unwrap_or_else(|_| "14".to_string())
                 .parse()
                 .unwrap_or(14),
+            reminder_poll_interval_secs: env::var("REMINDER_POLL_INTERVAL_SECS")
+                .unwrap_or_else(|_| "30".to_string())
+                .parse()
+                .unwrap_or(30),
+            reminder_batch_size: env::var("REMINDER_BATCH_SIZE")
+                .unwrap_or_else(|_| "25".to_string())
+                .parse()
+                .unwrap_or(25),
             long_term_retention_days: env::var("LONG_TERM_RETENTION_DAYS")
                 .unwrap_or_else(|_| "365".to_string())
                 .parse()
@@ -329,6 +341,11 @@ impl std::fmt::Debug for Config {
                 "summarization_refresh_days_lookback",
                 &self.summarization_refresh_days_lookback,
             )
+            .field(
+                "reminder_poll_interval_secs",
+                &self.reminder_poll_interval_secs,
+            )
+            .field("reminder_batch_size", &self.reminder_batch_size)
             .field("long_term_retention_days", &self.long_term_retention_days)
             .finish()
     }
