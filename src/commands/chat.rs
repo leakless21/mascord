@@ -2,6 +2,7 @@ use crate::config::DISCORD_EMBED_LIMIT;
 use crate::context::ConversationContext;
 use crate::llm::confirm::ToolConfirmationContext;
 use crate::services::user_memory::UserMemoryService;
+use crate::system_prompt;
 use crate::{Context, Error};
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
@@ -50,6 +51,14 @@ pub async fn chat(
             .content(system_prompt)
             .build()?
             .into()];
+
+    // Inject current date/time context
+    if let Ok(datetime_msg) = ChatCompletionRequestSystemMessageArgs::default()
+        .content(system_prompt::build_datetime_system_message())
+        .build()
+    {
+        messages.push(datetime_msg.into());
+    }
 
     let memory_service = UserMemoryService::new(ctx.data().db.clone(), ctx.data().cache.clone());
     let skip_memory = UserMemoryService::should_skip_memory(&message);

@@ -13,6 +13,7 @@ pub mod reminders;
 pub mod reply;
 pub mod services;
 pub mod summarize;
+pub mod system_prompt;
 pub mod tools;
 pub mod voice;
 

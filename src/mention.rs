@@ -3,6 +3,7 @@ use crate::context::ConversationContext;
 use crate::discord_text::{extract_message_text, strip_bot_mentions};
 use crate::llm::confirm::ToolConfirmationContext;
 use crate::services::user_memory::UserMemoryService;
+use crate::system_prompt;
 use crate::{Data, Error};
 use async_openai::types::{
     ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage,
@@ -55,6 +56,14 @@ pub async fn handle_mention(
             .content(system_prompt)
             .build()?
             .into()];
+
+    // Inject current date/time context
+    if let Ok(datetime_msg) = ChatCompletionRequestSystemMessageArgs::default()
+        .content(system_prompt::build_datetime_system_message())
+        .build()
+    {
+        messages.push(datetime_msg.into());
+    }
 
     if skip_memory {
         if let Ok(msg) = ChatCompletionRequestSystemMessageArgs::default()

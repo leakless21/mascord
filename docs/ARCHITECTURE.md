@@ -54,7 +54,15 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 - **Interface**: `src/mcp/`.
 - **Dependencies**: `rmcp`, `tokio`.
 
-### 8. Context Manager (Three-Tier Memory)
+### 8. System Prompt & Date/Time Context
+
+- **Responsibility**: Building system messages with current date/time awareness for LLM prompts.
+- **Awareness**: Automatically injects current UTC and local time into every conversation.
+- **Interface**: `src/system_prompt.rs`.
+- **Dependencies**: `chrono`.
+- **Injection Points**: `/chat` command, message replies, bot mentions.
+
+### 9. Context Manager (Three-Tier Memory)
 
 - **Responsibility**: Orchestrating the bot's functional memory across three layers:
     - **Short-Term**: Last 50 verbatim messages (LruCache). Set `CONTEXT_RETENTION_HOURS=0` to disable the time filter and rely on the message limit only.
@@ -64,7 +72,7 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 - **Dependencies**: `src/cache.rs`, `src/db/mod.rs`, `src/summarize.rs`.
 - **Retention**: Long-term memory is retained via `LONG_TERM_RETENTION_DAYS` (separate from short-term `CONTEXT_RETENTION_HOURS`). Set to `0` to disable long-term cleanup.
 
-### 9. Summarization Service
+### 10. Summarization Service
 
 - **Responsibility**: Periodically condensing channel history into persistent summaries to maintain "Working Memory".
 - **Compute**: Low (triggered every 4 hours, requires LLM call).
@@ -72,26 +80,26 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 - **Dependencies**: `src/llm/client.rs`, `src/db/mod.rs`.
 - **Policy**: Rolling summary with hard size caps, periodic refresh, and milestone anchors extracted from summaries to prevent long-term drift.
 
-### 10. Reply Handler
+### 11. Reply Handler
 
 - **Responsibility**: Detecting and processing Discord message replies to the bot.
 - **Interface**: `src/reply.rs`.
 - **Dependencies**: `src/commands/chat.rs`, `src/llm/agent.rs`.
 
-### 11. Mention Handler
+### 12. Mention Handler
 
 - **Responsibility**: Detecting and processing Discord messages that mention/tag the bot.
 - **Interface**: `src/mention.rs`.
 - **Dependencies**: `src/commands/chat.rs`, `src/llm/agent.rs`.
 
-### 12. User Memory Service
+### 13. User Memory Service
 
 - **Responsibility**: Store opt-in, curated per-user memory (preferences, projects) and inject it into prompts when relevant.
 - **Storage**: SQLite table for **global** user memory summaries with update timestamps and optional expiry.
 - **Interface**: `/memory` commands backed by a lightweight service layer (`src/services/user_memory.rs`); short snippets are injected into prompts and full detail is available via a tool. Memory auto-updates when enabled, with a temporary no-memory override for specific requests.
 - **Dependencies**: `src/db/mod.rs`, `src/commands/`.
 
-### 13. Reminder Scheduler
+### 14. Reminder Scheduler
 
 - **Responsibility**: Persist and dispatch user-created reminders on schedule.
 - **Interface**: `src/reminders.rs`, `src/services/reminder.rs`, `/reminder` commands.
