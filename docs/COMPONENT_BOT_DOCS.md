@@ -11,6 +11,7 @@ General bot setup, command registration, and event lifecycle management.
 - `src/commands/mod.rs`: Command registration and grouping.
 - `src/reply.rs`: Reply-to-bot message handler (auto-chat).
 - `src/mention.rs`: Mention/tag message handler (auto-chat).
+- `src/discord_text.rs`: Markdown-to-Discord formatter and message text extraction.
 - `src/summarize.rs`: Background summarization manager (rolling summary with caps, refresh, milestones).
 - `src/reminders.rs`: Background reminder dispatcher.
 

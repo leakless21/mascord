@@ -92,6 +92,12 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 - **Interface**: `src/mention.rs`.
 - **Dependencies**: `src/commands/chat.rs`, `src/llm/agent.rs`.
 
+### 12.1. Discord Text Formatter
+
+- **Responsibility**: Converts Markdown output into Discord-friendly formatting and degrades unsupported elements (tables, images, HTML).
+- **Interface**: `src/discord_text.rs`.
+- **Dependencies**: `pulldown-cmark`.
+
 ### 13. User Memory Service
 
 - **Responsibility**: Store opt-in, curated per-user memory (preferences, projects) and inject it into prompts when relevant.

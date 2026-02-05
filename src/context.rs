@@ -270,6 +270,8 @@ mod tests {
             summarization_max_tokens: 1200,
             summarization_refresh_weeks: 6,
             summarization_refresh_days_lookback: 14,
+            reminder_poll_interval_secs: 30,
+            reminder_batch_size: 25,
             long_term_retention_days: 365,
         }
     }

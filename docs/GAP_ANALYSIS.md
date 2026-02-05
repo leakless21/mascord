@@ -201,6 +201,17 @@ Last reviewed: February 4, 2026 (auto memory updates, no-memory mode, and deleti
 
 ---
 
+## 8.1 Message Formatting
+
+### GAP-028: Markdown Output Leaks Unsupported Syntax 🟡
+
+**Status**: Resolved ✅
+**Description**: Bot responses could emit Markdown headings and tables that Discord does not render properly.
+**Impact**: Users saw raw markdown (`#`, table separators, pipes) in chat.
+**Resolution**: Implemented Markdown parsing with `pulldown-cmark` and degraded unsupported elements to Discord-friendly text in `src/discord_text.rs`.
+
+---
+
 ## 9. Reminders
 
 ### GAP-022: Recurring Reminders Not Supported 🟢
@@ -300,6 +311,7 @@ Last reviewed: February 4, 2026 (auto memory updates, no-memory mode, and deleti
 - [x] **GAP-023**: No Per-User Data Deletion
 - [x] **GAP-025**: Blocking SQLite Calls on Async Runtime
 - [x] **GAP-027**: Deletion Completeness (Summaries/Milestones)
+- [x] **GAP-028**: Markdown Output Leaks Unsupported Syntax
 
 ---
 

@@ -11,6 +11,7 @@
 - **R-007**: Fail fast on excessive Discord rate limits (e.g., > 60s) during startup to avoid unresponsive hanging.
 - **R-008**: Provide clear, actionable error messages when external services (Discord, LLM, MCP) are unavailable or rate-limited.
 - **R-009**: Surface command errors to users with a consistent, friendly response while logging full details.
+- **R-010**: Convert Markdown responses into Discord-supported formatting, degrading unsupported elements (tables, images, HTML) into readable text.
 - Event handling for message tracking (for RAG).
 - Multi-channel support.
 
