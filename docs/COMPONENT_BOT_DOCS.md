@@ -9,11 +9,11 @@ General bot setup, command registration, and event lifecycle management.
 - `src/main.rs`: Entry point and Poise framework initialization.
 - `src/config.rs`: Configuration handling (env vars, constants).
 - `src/commands/mod.rs`: Command registration and grouping.
-- `src/commands/remind.rs`: Slash commands for natural-language reminder creation, listing, and cancellation.
 - `src/reply.rs`: Reply-to-bot message handler (auto-chat).
 - `src/mention.rs`: Mention/tag message handler (auto-chat).
+- `src/discord_text.rs`: Markdown-to-Discord formatter and message text extraction.
 - `src/summarize.rs`: Background summarization manager (rolling summary with caps, refresh, milestones).
-- `src/reminder.rs`: Background reminder dispatcher and reminder service logic.
+- `src/reminders.rs`: Background reminder dispatcher.
 
 ## Configuration & Environment
 
@@ -35,6 +35,14 @@ The bot is configured via environment variables (see `.env.example`). If a varia
 - `SUMMARIZATION_INTERVAL_SECS`: (Default: `3600`) Summarization scheduler tick interval.
 - `SUMMARIZATION_MAX_TOKENS`: (Default: `1200`) Hard cap for stored channel summaries (approximate).
 - `CONTEXT_RETENTION_HOURS`: (Default: `24`) Short-term time filter; set to `0` to disable time filtering and rely on message count.
+- `REMINDER_POLL_INTERVAL_SECS`: (Default: `30`) Reminder dispatcher polling interval.
+- `REMINDER_BATCH_SIZE`: (Default: `25`) Max reminders sent per poll cycle.
+
+Selected settings can also be overridden per guild using `/settings` commands. These overrides are stored in SQLite and take precedence over environment defaults for that server:
+
+- `SYSTEM_PROMPT`
+- `AGENT_CONFIRM_TIMEOUT_SECS`
+- `VOICE_IDLE_TIMEOUT_SECS`
 
 ## Platform Notes
 
@@ -57,8 +65,6 @@ Uses Poise's shared `Data` struct (thread-safe, wrapped in `Arc` by the framewor
 - `ToolRegistry`: Registry of callable tools.
 - `McpClientManager`: Manager for MCP server connections.
 
-In addition to shared `Data`, startup also launches background tasks (summarization, cleanup, embedding indexer, reminders). The reminder dispatcher reads due reminders from SQLite and posts them via Discord HTTP.
-
 ## Error Handling
 
 - Centralized Poise `on_error` handler logs errors and sends a user-facing response for command failures.
@@ -67,3 +73,15 @@ In addition to shared `Data`, startup also launches background tasks (summarizat
 ## Security
 
 Commands restricted to the bot owner use the `owner_id` check from `src/config.rs`. Sensitive configuration fields (tokens, API keys) are redacted in `Debug` logs via a custom implementation in `src/config.rs`.
+
+## User Memory (Opt-in)
+
+- **Commands**: `/memory enable|disable|show|remember|forget|delete_data`.
+- **Scope**: Global per-user profile (applies across servers and DMs).
+- **Storage**: `user_memory` table with optional expiry and explicit opt-in.
+- **Prompting**: Injects a short snippet into prompts; full detail available via `get_user_memory` tool.
+- **Auto-update**: When enabled, memory updates automatically from user messages unless a temporary no-memory request is detected.
+
+## Remaining Architectural Gap
+
+- **Service Layer**: Expand service usage beyond user memory so commands don’t call the database directly.

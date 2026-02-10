@@ -1,56 +1,49 @@
-# Component: Reminder Service
+# Component: Reminders
 
 ## Area of Responsibility
 
-Durable scheduling and delivery of user reminders.
+Persisting and dispatching user-created reminders on a schedule.
 
 ## Key Classes / Modules
 
-- `src/commands/remind.rs`: Slash commands (`/remind set`, `/remind list`, `/remind cancel`).
-- `src/reminder.rs`: Reminder service validation, background dispatcher loop, and delivery behavior.
-- `src/db/mod.rs`: Reminder persistence and state transitions.
+- `src/commands/reminder.rs`: Slash commands to set/list/cancel reminders.
+- `src/services/reminder.rs`: Business logic for reminder persistence.
+- `src/reminders.rs`: Background dispatcher that sends due reminders to Discord.
+- `src/db/mod.rs`: SQLite persistence for reminders.
 
 ## Data Model
 
-The `reminders` table stores:
+SQLite table: `reminders`
 
-- `guild_id`, `channel_id`, `user_id`: Delivery scope and target user.
-- `message`: Reminder body.
-- `remind_at`: UTC delivery timestamp (`YYYY-MM-DD HH:MM:SS`).
-- `status`: `pending | processing | sent | cancelled | failed`.
-- `delivery_attempts`, `last_error`, `sent_at`, `cancelled_at`: Delivery audit and retry bookkeeping.
+- `id` (INTEGER, PK)
+- `guild_id` (TEXT)
+- `channel_id` (TEXT)
+- `user_id` (TEXT)
+- `message` (TEXT)
+- `remind_at` (DATETIME, UTC)
+- `created_at` (DATETIME)
+- `delivered_at` (DATETIME, nullable)
 
-## Delivery Flow
+## Configuration
 
-1. User creates a reminder via `/remind set`.
-2. Service validates delay/message constraints and persists the reminder.
-3. Background dispatcher polls due reminders every 15 seconds.
-4. Dispatcher atomically claims due reminders by switching `pending -> processing`.
-5. Delivery attempts send a channel message that pings only the target user.
-6. Delivery result is persisted as:
-   - Success: `processing -> sent`
-   - Temporary failure: `processing -> pending` (next attempt in 1 minute)
-   - Max attempts reached: `processing -> failed`
+Environment variables (see `.env.example`):
 
-## Guardrails
+- `REMINDER_POLL_INTERVAL_SECS` (default `30`): Poll interval for due reminders.
+- `REMINDER_BATCH_SIZE` (default `25`): Max reminders sent per poll cycle.
 
-- Max pending reminders per user per guild: `50`.
-- Max delay: `30` days (`43200` minutes).
-- Minimum lead time: `10` seconds.
-- Max reminder message length: `500` characters.
-- Allowed mentions are restricted to the target user to prevent accidental `@everyone`/role pings.
+## Flow
 
-## Scheduling Input
-
-`/remind set` accepts natural-language `when` input:
-
-- Relative: `in 2 days, 30 minutes`, `3 hours`, `45m`.
-- Clock time: `at 5:30PM`, `at 22:15` (interpreted in UTC).
-- Absolute datetime (UTC): `YYYY-MM-DD HH:MM` or `YYYY-MM-DDTHH:MM`.
-- Numeric-only input is intentionally rejected; users must include units (`10 minutes`, `3 hours`).
+1. User runs `/reminder set` with a duration and message.
+2. `ReminderService` validates inputs and writes a new reminder row to SQLite.
+3. `ReminderDispatcher` polls for due reminders on an interval.
+4. Dispatcher sends a message in the originating channel and marks the reminder delivered.
 
 ## Error Handling
 
-- Validation failures return explicit user-facing errors.
-- Dispatcher failures are logged with reminder IDs and retry context.
-- On startup, stuck `processing` reminders are reset to `pending` for recovery.
+- Validation failures return user-friendly messages in the command response.
+- Dispatch failures are logged and do not crash the scheduler loop.
+
+## Security & Abuse Controls
+
+- Reminders are owned by the creating user and can only be canceled by that user.
+- Reminder delivery only mentions the requester (no role/everyone pings).

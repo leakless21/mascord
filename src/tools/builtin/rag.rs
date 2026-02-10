@@ -46,8 +46,8 @@ impl Tool for SearchLocalHistoryTool {
         let mut raw_history = String::new();
         for msg in &results {
             raw_history.push_str(&format!(
-                "[{}] {}: {}\n",
-                msg.timestamp, msg.user_id, msg.content
+                "[{}] (channel {}) {}: {}\n",
+                msg.timestamp, msg.channel_id, msg.user_id, msg.content
             ));
         }
 
@@ -62,7 +62,13 @@ impl Tool for SearchLocalHistoryTool {
 
         Ok(json!({
             "result": result_summary,
-            "raw_count": results.len()
+            "raw_count": results.len(),
+            "sources": results.iter().map(|msg| json!({
+                "timestamp": msg.timestamp,
+                "channel_id": msg.channel_id,
+                "user_id": msg.user_id,
+                "content": msg.content
+            })).collect::<Vec<_>>()
         }))
     }
 }

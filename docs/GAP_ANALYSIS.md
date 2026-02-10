@@ -1,7 +1,7 @@
 # Gap Analysis: Mascord Discord Bot
 
 This document tracks identified gaps, edge cases, and potential issues requiring remediation.
-Last reviewed: February 10, 2026 (reminder scheduling delivered with durable queue + dispatcher; runtime gaps updated).
+Last reviewed: February 4, 2026 (auto memory updates, no-memory mode, and deletion completeness reviewed).
 
 ## Legend
 
@@ -170,10 +170,10 @@ Last reviewed: February 10, 2026 (reminder scheduling delivered with durable que
 
 ### GAP-013: SQL Injection in Search Query 🔴
 
-**Status**: Open
-**Description**: `db/mod.rs:146` uses string formatting for query parameter: `format!(" AND content LIKE '%{}%'", query.replace("'", "''"))`.
-**Impact**: SQL injection vulnerability despite quote escaping.
-**Resolution**: Use parameterized queries with `?` placeholders.
+**Status**: Resolved ✅
+**Description**: Search queries were previously built with string formatting.
+**Impact**: Potential SQL injection risk.
+**Resolution**: Replaced with parameterized queries using `?` placeholders.
 
 ### GAP-014: Database Connection Pool Absent 🟢
 
@@ -184,7 +184,7 @@ Last reviewed: February 10, 2026 (reminder scheduling delivered with durable que
 
 ---
 
-## 8. Configuration & Security
+## 7. Configuration & Security
 
 ### GAP-015: API Keys Logged in Debug Mode 🟡
 
@@ -195,9 +195,45 @@ Last reviewed: February 10, 2026 (reminder scheduling delivered with durable que
 
 ---
 
-## 9. Platform Support
+## 8. Platform Support
 
 ### GAP-021: macOS Support Not Documented or Validated 🟡
+
+---
+
+## 8.1 Message Formatting
+
+### GAP-028: Markdown Output Leaks Unsupported Syntax 🟡
+
+**Status**: Resolved ✅
+**Description**: Bot responses could emit Markdown headings and tables that Discord does not render properly.
+**Impact**: Users saw raw markdown (`#`, table separators, pipes) in chat.
+**Resolution**: Implemented Markdown parsing with `pulldown-cmark` and degraded unsupported elements to Discord-friendly text in `src/discord_text.rs`.
+
+---
+
+## 9. Reminders
+
+### GAP-022: Recurring Reminders Not Supported 🟢
+
+**Status**: Open (Documented Limitation)
+**Description**: Reminders are one-time only; no repeat rules (daily/weekly).
+**Impact**: Users must recreate recurring reminders manually.
+**Resolution**: Add optional recurrence rules with a next-run scheduler update.
+
+### GAP-023: Delivered Reminder Cleanup Missing 🟢
+
+**Status**: Open
+**Description**: Delivered reminders are retained indefinitely.
+**Impact**: Database can grow over time in long-lived deployments.
+**Resolution**: Add retention policy (e.g., auto-delete delivered reminders older than N days).
+
+### GAP-024: Absolute Date/Timezone Input Not Supported 🟢
+
+**Status**: Open (Documented Limitation)
+**Description**: Reminders only accept relative durations; no explicit date/time with timezone.
+**Impact**: Users must convert absolute times into durations manually.
+**Resolution**: Add timezone profiles per user and accept absolute date/time input.
 
 **Status**: Open
 **Description**: macOS is not listed as a supported platform, and there is no CI or documented validation of macOS builds/runtime behavior.
@@ -206,14 +242,53 @@ Last reviewed: February 10, 2026 (reminder scheduling delivered with durable que
 
 ---
 
-## 10. Reminder Scheduling
+## 9. User Memory & Privacy
 
-### GAP-022: No User Reminder Functionality 🟡
+### GAP-022: No User-Scoped Memory (Opt-in) 🟡
 
 **Status**: Resolved ✅
-**Description**: The bot previously lacked a first-party reminder command and durable scheduling path.
-**Impact**: Users had no built-in way to set timed follow-ups in Discord.
-**Resolution**: Added `/remind set`, `/remind list`, `/remind cancel`, and `/remind help`; implemented SQLite-backed reminder persistence and a background dispatcher with delivery state transitions (`pending/processing/sent/cancelled/failed`). `/remind set` accepts natural-language schedule inputs (relative durations with explicit units, clock times, and UTC datetimes).
+**Description**: The bot supports channel-scoped memory, but had no opt-in per-user memory profile or preference store.
+**Impact**: Limited assistant behavior for individual users and forced all memory to be channel-level.
+**Resolution**: Added global user memory with opt-in `/memory` commands and prompt injection.
+
+### GAP-023: No Per-User Data Deletion 🟡
+
+**Status**: Resolved ✅
+**Description**: Current purge controls were channel-based; there was no "delete my data" path for a specific user.
+**Impact**: Harder to meet user expectations and platform data-handling requirements.
+**Resolution**: Added `/memory delete_data` to purge user messages and memory.
+
+### GAP-024: No Documented Data Security (At-Rest) 🟡
+
+**Status**: Open
+**Description**: SQLite data is stored in plaintext without documented encryption at rest.
+**Impact**: Potential compliance and security risk for stored user data.
+**Resolution**: Document security controls and consider DB encryption or OS-level encryption.
+
+### GAP-027: Deletion Completeness (Summaries/Milestones) 🟡
+
+**Status**: Resolved ✅
+**Description**: Deleting a user’s data removed messages but left channel summaries/milestones that might contain aggregated references.
+**Impact**: Residual user data could persist in summarized artifacts.
+**Resolution**: Purge channel summaries and milestones for affected channels on user delete.
+
+---
+
+## 10. Performance & Architecture
+
+### GAP-025: Blocking SQLite Calls on Async Runtime 🟡
+
+**Status**: Resolved ✅
+**Description**: Many SQLite calls were executed directly in async contexts without `spawn_blocking`.
+**Impact**: Potential latency spikes or event loop stalls under load.
+**Resolution**: Added `Database::run_blocking` and wrapped hot-path DB calls.
+
+### GAP-026: Commands Bypass Service Layer 🟢
+
+**Status**: Open
+**Description**: Commands call the database directly instead of using services.
+**Impact**: Harder to test and violates documented architecture boundaries.
+**Resolution**: Introduce service modules (e.g., `ContextService`, `RagService`, `SettingsService`) and route commands through them.
 
 ---
 
@@ -232,7 +307,11 @@ Last reviewed: February 10, 2026 (reminder scheduling delivered with durable que
 - [x] **GAP-017**: Bot Hangs on Startup Rate Limit (Phase 5)
 - [x] **GAP-019**: Missing Cookie File Validation (Phase 6)
 - [x] **GAP-020**: Command Errors Not Surfaced (Phase 6)
-- [x] **GAP-022**: No User Reminder Functionality (Phase 7)
+- [x] **GAP-022**: No User-Scoped Memory (Opt-in)
+- [x] **GAP-023**: No Per-User Data Deletion
+- [x] **GAP-025**: Blocking SQLite Calls on Async Runtime
+- [x] **GAP-027**: Deletion Completeness (Summaries/Milestones)
+- [x] **GAP-028**: Markdown Output Leaks Unsupported Syntax
 
 ---
 
@@ -244,7 +323,6 @@ Last reviewed: February 10, 2026 (reminder scheduling delivered with durable que
 | `config.rs` | ✅ Defaults, missing vars | Custom Debug redaction |
 | `context.rs` | ✅ Context retrieval, limits | Retention time filtering |
 | `db/mod.rs` | ✅ Init, save, settings | Search, summaries |
-| `reminder.rs` | 🟡 Dispatcher covered via DB-state tests only | End-to-end delivery path with mocked Discord HTTP |
 | `mcp/` | ❌ None | Connection, tool execution |
 | `llm/` | ❌ None | Timeout handling, errors |
 | `voice/` | ❌ None | Join/leave, queue |

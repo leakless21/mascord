@@ -124,67 +124,91 @@ Delete old messages from this channel's history.
 
 ---
 
+### `/memory [enable|disable|show|remember|forget|delete_data]`
+
+**Description**: Manage your **global, opt-in** user memory profile (applies across servers and DMs).
+
+**Subcommands**:
+
+#### `/memory enable`
+Enable your global memory profile.
+
+```
+/memory enable
+```
+
+#### `/memory disable`
+Disable your global memory profile (keeps stored data).
+
+```
+/memory disable
+```
+
+#### `/memory show`
+View your current memory profile and expiry status.
+
+```
+/memory show
+```
+
+#### `/memory remember [summary] [ttl_days]`
+Create or replace your memory profile. `ttl_days` is optional.
+
+```
+/memory remember "I prefer concise answers and work in Rust." 90
+```
+
+#### `/memory forget`
+Delete your memory profile only.
+
+```
+/memory forget
+```
+
+#### `/memory delete_data`
+Delete your stored messages and memory profile (global).
+
+```
+/memory delete_data
+```
+
+---
+
 ## Reminder Commands
 
-### `/remind set [when] [message]`
+### `/reminder [set|list|cancel]`
 
-**Description**: Schedule a personal reminder in the current channel.
+**Description**: Create and manage one-time reminders.
 
-**Usage**:
+**Subcommands**:
+
+#### `/reminder set [when] [message]`
+Set a reminder using a human-friendly duration.
+
 ```
-/remind set in 2 days, 30 minutes Prepare release notes
-/remind set 3 hours Check deployment
-/remind set 10 minutes Stand up and stretch
-/remind set at 5:30PM Send status update
-/remind set at 22:15 Take medicine
-/remind set 2026-02-10 17:30 Submit report
-```
-
-**Notes**:
-- `when` supports relative durations, clock times, and UTC datetimes
-- Plain numbers are **not** accepted; include a time unit (`10 minutes`, `3 hours`)
-- Delay range: from 10 seconds to `43200` minutes (30 days)
-- Reminder text max length: 500 characters
-- The reminder delivery pings only you (not `@everyone`/roles)
-- Clock-style times (`at 22:15`, `at 5:30PM`) are interpreted in UTC
-
----
-
-### `/remind help`
-
-**Description**: Show reminder syntax and examples directly in Discord.
-
-**Usage**:
-```
-/remind help
+/reminder set 10m "Stretch break"
+/reminder set 2h "Check the deployment"
+/reminder set 1d 2h "Follow up with the team"
 ```
 
----
+#### `/reminder list [limit]`
+List upcoming reminders (default 10, max 20).
 
-### `/remind list`
-
-**Description**: Show your pending reminders in the current server.
-
-**Usage**:
 ```
-/remind list
+/reminder list
+/reminder list 5
 ```
 
-**What happens**:
-1. Fetches your pending reminders for this guild
-2. Shows IDs, channels, and due times
-3. Provides IDs for cancellation
+#### `/reminder cancel [id]`
+Cancel a pending reminder by ID (from `/reminder list`).
 
----
-
-### `/remind cancel [reminder_id]`
-
-**Description**: Cancel one of your pending reminders by ID.
-
-**Usage**:
 ```
-/remind cancel 42
+/reminder cancel 42
 ```
+
+**Related Settings**:
+- `REMINDER_POLL_INTERVAL_SECS` - Dispatcher polling interval
+- `REMINDER_BATCH_SIZE` - Max reminders sent per poll cycle
 
 ---
 
@@ -278,13 +302,33 @@ Manage conversation context and memory limits.
 - `retention` - Hours of messages to keep (0-unlimited)
 - `summarize` - Create a summary of conversation history
 
-#### `/settings advanced`
-Advanced configuration (owner-only).
+#### `/settings system_prompt`
+View or update the assistant's system prompt for this server.
 
 ```
-/settings advanced llm_timeout 60      # LLM timeout in seconds
-/settings advanced register_commands   # Re-register slash commands
+/settings system_prompt                    # View current prompt
+/settings system_prompt "Be concise"       # Set override
+/settings system_prompt reset:true         # Reset to default
 ```
+
+#### `/settings agent_timeout`
+View or update the tool confirmation timeout.
+
+```
+/settings agent_timeout                 # View current timeout
+/settings agent_timeout 180             # Set to 180 seconds
+/settings agent_timeout reset:true      # Reset to default
+```
+
+#### `/settings voice_timeout`
+View or update the voice idle timeout for auto-disconnect.
+
+```
+/settings voice_timeout                 # View current timeout
+/settings voice_timeout 600             # Set to 10 minutes
+/settings voice_timeout reset:true      # Reset to default
+```
+
 
 ---
 
@@ -364,7 +408,7 @@ Show bot status and statistics.
 ### 🔍 Memory & Search
 - `/search` - Query message history
 - `/rag enable/disable/status/purge` - Manage long-term memory
-- `/remind set/list/cancel` - Manage personal reminders
+- `/memory enable/disable/show/remember/forget/delete_data` - Manage your global user memory
 
 ### 🎵 Music
 - `/play` - Play audio from URL or search
@@ -383,6 +427,8 @@ Show bot status and statistics.
 ---
 
 ## Tips & Tricks
+
+- Want a one-off response without memory? Say things like **"no memory this time"** or **"temporary mode"** in your request.
 
 ### Combine Commands
 

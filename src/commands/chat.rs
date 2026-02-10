@@ -1,13 +1,15 @@
 use crate::config::DISCORD_EMBED_LIMIT;
 use crate::context::ConversationContext;
 use crate::llm::confirm::ToolConfirmationContext;
+use crate::services::user_memory::UserMemoryService;
+use crate::system_prompt;
 use crate::{Context, Error};
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
     ChatCompletionRequestUserMessageArgs,
 };
 use poise::serenity_prelude::{CreateEmbed, CreateEmbedFooter};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// Chat with the all-in-one assistant
 #[poise::command(slash_command)]
@@ -23,24 +25,106 @@ pub async fn chat(
     );
     ctx.defer().await?;
 
+    let guild_id = ctx.guild_id().map(|id| id.get());
+    let system_prompt = if let Some(gid) = guild_id {
+        ctx.data()
+            .db
+            .run_blocking(move |db| db.get_guild_system_prompt(gid))
+            .await?
+            .unwrap_or_else(|| ctx.data().config.system_prompt.clone())
+    } else {
+        ctx.data().config.system_prompt.clone()
+    };
+    let confirm_timeout_secs = if let Some(gid) = guild_id {
+        ctx.data()
+            .db
+            .run_blocking(move |db| db.get_guild_agent_confirm_timeout(gid))
+            .await?
+            .unwrap_or(ctx.data().config.agent_confirm_timeout_secs)
+    } else {
+        ctx.data().config.agent_confirm_timeout_secs
+    };
+
     // Build messages with configurable system prompt
     let mut messages: Vec<ChatCompletionRequestMessage> =
         vec![ChatCompletionRequestSystemMessageArgs::default()
-            .content(ctx.data().config.system_prompt.clone())
+            .content(system_prompt)
             .build()?
             .into()];
 
+    // Inject current date/time context
+    if let Ok(datetime_msg) = ChatCompletionRequestSystemMessageArgs::default()
+        .content(system_prompt::build_datetime_system_message())
+        .build()
+    {
+        messages.push(datetime_msg.into());
+    }
+
+    let memory_service = UserMemoryService::new(ctx.data().db.clone(), ctx.data().cache.clone());
+    let skip_memory = UserMemoryService::should_skip_memory(&message);
+    let user_id = ctx.author().id.get();
+
+    if skip_memory {
+        if let Ok(msg) = ChatCompletionRequestSystemMessageArgs::default()
+            .content("Temporary no-memory request: do not use or update user memory. Do not call get_user_memory.")
+            .build()
+        {
+            messages.push(msg.into());
+        }
+    }
+
+    if let Ok(meta_msg) = ChatCompletionRequestSystemMessageArgs::default()
+        .content(format!(
+            "User metadata: id={}, name={}",
+            user_id,
+            ctx.author().name
+        ))
+        .build()
+    {
+        messages.push(meta_msg.into());
+    }
+
+    let memory_record = if skip_memory {
+        None
+    } else {
+        memory_service.get_user_memory_record(user_id).await?
+    };
+    let memory_enabled = memory_record.as_ref().is_some_and(|r| r.enabled);
+
+    if !skip_memory {
+        if let Ok(help_msg) = ChatCompletionRequestSystemMessageArgs::default()
+            .content(
+                "If you need the user's full memory profile, call get_user_memory with user_id.",
+            )
+            .build()
+        {
+            messages.push(help_msg.into());
+        }
+    }
+
+    if let Some(record) = memory_record.as_ref().filter(|r| r.enabled) {
+        let snippet = UserMemoryService::format_snippet(&record.summary, 600);
+        if !snippet.is_empty() {
+            if let Ok(msg) = ChatCompletionRequestUserMessageArgs::default()
+                .content(snippet)
+                .build()
+            {
+                messages.push(msg.into());
+            }
+        }
+    }
+
     // Inject channel context (recent messages)
-    let context_messages = ConversationContext::get_context_for_channel(
-        &ctx.data().cache,
-        &ctx.data().db,
-        &ctx.data().config,
+    let context_messages = ConversationContext::get_context_for_channel_async(
+        ctx.data().cache.clone(),
+        ctx.data().db.clone(),
+        ctx.data().config.clone(),
         ctx.channel_id(),
         ctx.guild_id().map(|id| id.get()),
         Some(ctx.data().bot_id),
         None,
     );
-    messages.extend(context_messages);
+    messages.extend(context_messages.await);
 
     // Add the current user message
     messages.push(
@@ -57,7 +141,7 @@ pub async fn chat(
         ctx.serenity_context(),
         ctx.channel_id(),
         ctx.author().id,
-        std::time::Duration::from_secs(ctx.data().config.agent_confirm_timeout_secs),
+        std::time::Duration::from_secs(confirm_timeout_secs),
     );
     let response = match agent.run_with_confirmation(confirm_ctx, messages, 10).await {
         Ok(r) => r,
@@ -82,6 +166,22 @@ pub async fn chat(
     // Attempt to delete the "Thinking..." message to clean up
     if let Ok(m) = query_msg.into_message().await {
         let _ = m.delete(ctx).await;
+    }
+
+    if !skip_memory && memory_enabled {
+        let llm = ctx.data().llm_client.clone();
+        let memory_service =
+            UserMemoryService::new(ctx.data().db.clone(), ctx.data().cache.clone());
+        let user_message = message.clone();
+        let assistant_response = response.clone();
+        tokio::spawn(async move {
+            if let Err(e) = memory_service
+                .auto_update_memory(llm, user_id, &user_message, &assistant_response)
+                .await
+            {
+                warn!("Auto-update memory failed for user {}: {}", user_id, e);
+            }
+        });
     }
 
     Ok(())

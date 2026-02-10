@@ -1,5 +1,5 @@
 use anyhow::Context as AnyhowContext;
-use mascord::commands::{admin, chat, mcp, music, rag, remind, settings};
+use mascord::commands::{admin, chat, mcp, memory, music, rag, reminder, settings};
 use mascord::{config::Config, Data};
 use poise::serenity_prelude as serenity;
 use serenity::all::Http;
@@ -94,14 +94,16 @@ async fn main() -> anyhow::Result<()> {
         .options(poise::FrameworkOptions {
             commands: vec![
                 chat::chat(),
+                memory::memory(),
                 rag::search(),
-                remind::remind(),
                 music::join(),
                 music::play(),
                 music::skip(),
                 music::leave(),
                 music::queue(),
+                reminder::reminder(),
                 admin::shutdown(),
+                admin::restart(),
                 mcp::mcp(),
                 settings::settings(), // /settings context
             ],
@@ -110,34 +112,44 @@ async fn main() -> anyhow::Result<()> {
                     if let serenity::FullEvent::Message { new_message } = event {
                         if !new_message.author.bot {
                             // Check if channel tracking is enabled
+                            let cache_message = new_message.clone();
+                            let channel_id = new_message.channel_id.to_string();
+                            let guild_id = new_message
+                                .guild_id
+                                .map(|id| id.to_string())
+                                .unwrap_or_default();
+                            let user_id = new_message.author.id.to_string();
+                            let content = new_message.content.clone();
+                            let message_id = new_message.id.to_string();
+                            let timestamp = new_message.timestamp.unix_timestamp();
+
                             match data
                                 .db
-                                .is_channel_tracking_enabled(&new_message.channel_id.to_string())
+                                .run_blocking(move |db| {
+                                    let enabled = db.is_channel_tracking_enabled(&channel_id)?;
+                                    if enabled {
+                                        db.save_message(
+                                            &message_id,
+                                            &guild_id,
+                                            &channel_id,
+                                            &user_id,
+                                            &content,
+                                            timestamp,
+                                        )?;
+                                    }
+                                    Ok(enabled)
+                                })
+                                .await
                             {
                                 Ok(true) => {
-                                    // Populate internal cache
-                                    data.cache.insert(new_message.clone());
-
-                                    if let Err(e) = data.db.save_message(
-                                        &new_message.id.to_string(),
-                                        &new_message.guild_id.map(|id| id.to_string()).unwrap_or_default(),
-                                        &new_message.channel_id.to_string(),
-                                        &new_message.author.id.to_string(),
-                                        &new_message.content,
-                                        new_message.timestamp.unix_timestamp(),
-                                    ) {
-                                        tracing::error!(
-                                            "Failed to save message {} in channel {}: {}",
-                                            new_message.id,
-                                            new_message.channel_id,
-                                            e
-                                        );
-                                    }
+                                    // Populate internal cache after persistence check
+                                    data.cache.insert(cache_message);
                                 }
                                 Ok(false) => {}
                                 Err(e) => {
                                     tracing::error!(
-                                        "Failed to check tracking setting for channel {}: {}",
+                                        "Failed to persist message {} in channel {}: {}",
+                                        new_message.id,
                                         new_message.channel_id,
                                         e
                                     );
@@ -228,9 +240,6 @@ async fn main() -> anyhow::Result<()> {
                 // Initialize cache with capacity of 1000 messages
                 let cache = mascord::cache::MessageCache::new(1000);
 
-                // Start background reminder dispatcher.
-                mascord::reminder::start_dispatcher(db.clone(), ctx.http.clone());
-
                 // Initialize Tools
                 let mut registry = mascord::tools::ToolRegistry::new();
                 registry.register(std::sync::Arc::new(mascord::tools::builtin::music::PlayMusicTool));
@@ -238,6 +247,9 @@ async fn main() -> anyhow::Result<()> {
                     db: db.clone(),
                     llm: llm_client.clone(),
                 }));
+                registry.register(std::sync::Arc::new(
+                    mascord::tools::builtin::user_memory::GetUserMemoryTool { db: db.clone() },
+                ));
                 let tools = std::sync::Arc::new(registry);
 
                 // Initialize MCP
@@ -418,6 +430,46 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     info!("Long-term cleanup disabled (LONG_TERM_RETENTION_DAYS=0)");
                 }
+
+                // Start user memory expiry cleanup (runs every hour).
+                let user_memory_cleanup = db.clone();
+                tokio::spawn(async move {
+                    let mut interval =
+                        tokio::time::interval(tokio::time::Duration::from_secs(3600));
+                    loop {
+                        interval.tick().await;
+                        match user_memory_cleanup
+                            .run_blocking(move |db| db.cleanup_expired_user_memory())
+                            .await
+                        {
+                            Ok(count) if count > 0 => {
+                                info!("User memory cleanup: deleted {} expired records", count);
+                            }
+                            Ok(_) => {
+                                tracing::debug!("User memory cleanup: no expired records");
+                            }
+                            Err(e) => {
+                                tracing::error!("User memory cleanup error: {}", e);
+                            }
+                        }
+                    }
+                });
+
+                // Start reminder dispatcher (polls for due reminders).
+                let reminder_service = mascord::services::reminder::ReminderService::new(db.clone());
+                let reminder_http = ctx.http.clone();
+                let reminder_poll_secs = config.reminder_poll_interval_secs;
+                let reminder_batch_size = config.reminder_batch_size;
+                tokio::spawn(async move {
+                    mascord::reminders::ReminderDispatcher::new(
+                        reminder_service,
+                        reminder_http,
+                        reminder_poll_secs,
+                        reminder_batch_size,
+                    )
+                    .run()
+                    .await;
+                });
 
                 if config.embedding_indexer_enabled {
                     // Start background embedding indexer (best-effort, non-blocking).

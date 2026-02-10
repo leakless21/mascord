@@ -5,7 +5,7 @@ use tracing::info;
 /// Manage bot settings
 #[poise::command(
     slash_command,
-    subcommands("context", "memory"),
+    subcommands("context", "memory", "system_prompt", "agent_timeout", "voice_timeout"),
     required_permissions = "MANAGE_GUILD",
     guild_only
 )]
@@ -28,11 +28,190 @@ pub async fn memory(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
+/// View or update the server system prompt
+#[poise::command(slash_command)]
+pub async fn system_prompt(
+    ctx: Context<'_>,
+    #[description = "New system prompt (omit to view current)"] prompt: Option<String>,
+    #[description = "Reset to default config value"] reset: Option<bool>,
+) -> Result<(), Error> {
+    let guild_id = ctx.guild_id().ok_or("Must be run in a guild")?;
+    let guild_id_val = guild_id.get();
+
+    if reset.unwrap_or(false) {
+        ctx.data()
+            .db
+            .run_blocking(move |db| db.set_guild_system_prompt(guild_id_val, None))
+            .await?;
+        ctx.say("✅ System prompt reset to default.").await?;
+        return Ok(());
+    }
+
+    if let Some(prompt) = prompt {
+        let trimmed = prompt.trim();
+        if trimmed.is_empty() {
+            ctx.say("❌ System prompt cannot be empty.").await?;
+            return Ok(());
+        }
+        let trimmed = trimmed.to_string();
+        ctx.data()
+            .db
+            .run_blocking(move |db| {
+                db.set_guild_system_prompt(guild_id_val, Some(trimmed.as_str()))
+            })
+            .await?;
+        ctx.say("✅ System prompt updated for this server.").await?;
+        return Ok(());
+    }
+
+    let override_prompt = ctx
+        .data()
+        .db
+        .run_blocking(move |db| db.get_guild_system_prompt(guild_id_val))
+        .await?;
+    let (prompt_text, source) = match override_prompt {
+        Some(p) if !p.trim().is_empty() => (p, "Server Override"),
+        _ => (
+            ctx.data().config.system_prompt.clone(),
+            "Default Configuration",
+        ),
+    };
+
+    let embed = serenity::CreateEmbed::new()
+        .title("🧠 System Prompt")
+        .description(prompt_text)
+        .footer(serenity::CreateEmbedFooter::new(source))
+        .color(0x5865F2);
+
+    ctx.send(poise::CreateReply::default().embed(embed)).await?;
+    Ok(())
+}
+
+/// View or update the agent confirmation timeout
+#[poise::command(slash_command)]
+pub async fn agent_timeout(
+    ctx: Context<'_>,
+    #[description = "Tool confirmation timeout in seconds (omit to view)"]
+    #[min = 30]
+    #[max = 3600]
+    timeout_secs: Option<u64>,
+    #[description = "Reset to default config value"] reset: Option<bool>,
+) -> Result<(), Error> {
+    let guild_id = ctx.guild_id().ok_or("Must be run in a guild")?;
+    let guild_id_val = guild_id.get();
+
+    if reset.unwrap_or(false) {
+        ctx.data()
+            .db
+            .run_blocking(move |db| db.set_guild_agent_confirm_timeout(guild_id_val, None))
+            .await?;
+        ctx.say("✅ Agent confirmation timeout reset to default.")
+            .await?;
+        return Ok(());
+    }
+
+    if let Some(timeout) = timeout_secs {
+        ctx.data()
+            .db
+            .run_blocking(move |db| db.set_guild_agent_confirm_timeout(guild_id_val, Some(timeout)))
+            .await?;
+        ctx.say(format!(
+            "✅ Agent confirmation timeout set to **{}** seconds.",
+            timeout
+        ))
+        .await?;
+        return Ok(());
+    }
+
+    let override_timeout = ctx
+        .data()
+        .db
+        .run_blocking(move |db| db.get_guild_agent_confirm_timeout(guild_id_val))
+        .await?;
+    let timeout = override_timeout.unwrap_or(ctx.data().config.agent_confirm_timeout_secs);
+    let source = if override_timeout.is_some() {
+        "Server Override"
+    } else {
+        "Default Configuration"
+    };
+
+    let embed = serenity::CreateEmbed::new()
+        .title("⏱️ Agent Confirmation Timeout")
+        .description(format!("**{}** seconds", timeout))
+        .footer(serenity::CreateEmbedFooter::new(source))
+        .color(0x5865F2);
+
+    ctx.send(poise::CreateReply::default().embed(embed)).await?;
+    Ok(())
+}
+
+/// View or update voice idle timeout
+#[poise::command(slash_command)]
+pub async fn voice_timeout(
+    ctx: Context<'_>,
+    #[description = "Voice idle timeout in seconds (omit to view)"]
+    #[min = 60]
+    #[max = 3600]
+    timeout_secs: Option<u64>,
+    #[description = "Reset to default config value"] reset: Option<bool>,
+) -> Result<(), Error> {
+    let guild_id = ctx.guild_id().ok_or("Must be run in a guild")?;
+    let guild_id_val = guild_id.get();
+
+    if reset.unwrap_or(false) {
+        ctx.data()
+            .db
+            .run_blocking(move |db| db.set_guild_voice_idle_timeout(guild_id_val, None))
+            .await?;
+        ctx.say("✅ Voice idle timeout reset to default.").await?;
+        return Ok(());
+    }
+
+    if let Some(timeout) = timeout_secs {
+        ctx.data()
+            .db
+            .run_blocking(move |db| db.set_guild_voice_idle_timeout(guild_id_val, Some(timeout)))
+            .await?;
+        ctx.say(format!(
+            "✅ Voice idle timeout set to **{}** seconds.",
+            timeout
+        ))
+        .await?;
+        return Ok(());
+    }
+
+    let override_timeout = ctx
+        .data()
+        .db
+        .run_blocking(move |db| db.get_guild_voice_idle_timeout(guild_id_val))
+        .await?;
+    let timeout = override_timeout.unwrap_or(ctx.data().config.voice_idle_timeout_secs);
+    let source = if override_timeout.is_some() {
+        "Server Override"
+    } else {
+        "Default Configuration"
+    };
+
+    let embed = serenity::CreateEmbed::new()
+        .title("🔊 Voice Idle Timeout")
+        .description(format!("**{}** seconds", timeout))
+        .footer(serenity::CreateEmbedFooter::new(source))
+        .color(0x5865F2);
+
+    ctx.send(poise::CreateReply::default().embed(embed)).await?;
+    Ok(())
+}
+
 /// List all per-channel memory settings
 #[poise::command(slash_command)]
 pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = ctx.guild_id().ok_or("Must be run in a guild")?;
-    let settings = ctx.data().db.list_channel_settings(&guild_id.to_string())?;
+    let guild_id_str = guild_id.to_string();
+    let settings = ctx
+        .data()
+        .db
+        .run_blocking(move |db| db.list_channel_settings(&guild_id_str))
+        .await?;
 
     if settings.is_empty() {
         ctx.say("📭 No custom channel settings found. All channels are using default (enabled).")
@@ -67,11 +246,12 @@ pub async fn enable(
     #[description = "The channel to enable tracking for"] target_channel: serenity::Channel,
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().ok_or("Must be run in a guild")?;
-    ctx.data().db.set_channel_enabled(
-        &guild_id.to_string(),
-        &target_channel.id().to_string(),
-        true,
-    )?;
+    let guild_id_str = guild_id.to_string();
+    let channel_id_str = target_channel.id().to_string();
+    ctx.data()
+        .db
+        .run_blocking(move |db| db.set_channel_enabled(&guild_id_str, &channel_id_str, true))
+        .await?;
     ctx.say(format!(
         "✅ Memory tracking enabled for <#{}>.",
         target_channel.id()
@@ -87,11 +267,12 @@ pub async fn disable(
     #[description = "The channel to disable tracking for"] target_channel: serenity::Channel,
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().ok_or("Must be run in a guild")?;
-    ctx.data().db.set_channel_enabled(
-        &guild_id.to_string(),
-        &target_channel.id().to_string(),
-        false,
-    )?;
+    let guild_id_str = guild_id.to_string();
+    let channel_id_str = target_channel.id().to_string();
+    ctx.data()
+        .db
+        .run_blocking(move |db| db.set_channel_enabled(&guild_id_str, &channel_id_str, false))
+        .await?;
     ctx.say(format!(
         "❌ Memory tracking disabled for <#{}>. Messages in this channel will no longer be saved.",
         target_channel.id()
@@ -114,11 +295,15 @@ pub async fn scope(
         Some(date)
     };
 
-    ctx.data().db.set_channel_memory_scope(
-        &guild_id.to_string(),
-        &target_channel.id().to_string(),
-        date_val.clone(),
-    )?;
+    let guild_id_str = guild_id.to_string();
+    let channel_id_str = target_channel.id().to_string();
+    let date_val_clone = date_val.clone();
+    ctx.data()
+        .db
+        .run_blocking(move |db| {
+            db.set_channel_memory_scope(&guild_id_str, &channel_id_str, date_val_clone)
+        })
+        .await?;
 
     match date_val {
         Some(d) => {
@@ -180,10 +365,13 @@ pub async fn purge(
         .await
     {
         if interaction.data.custom_id == "confirm" {
+            let channel_id_str = channel.id().to_string();
+            let before_date_clone = before_date.clone();
             let count = ctx
                 .data()
                 .db
-                .purge_messages(&channel.id().to_string(), before_date)?;
+                .run_blocking(move |db| db.purge_messages(&channel_id_str, before_date_clone))
+                .await?;
             interaction
                 .create_response(
                     ctx.serenity_context(),
@@ -225,7 +413,12 @@ pub async fn get(ctx: Context<'_>) -> Result<(), Error> {
     );
 
     // Get settings from DB
-    let (db_limit, db_retention) = ctx.data().db.get_guild_settings(guild_id.get())?;
+    let guild_id_val = guild_id.get();
+    let (db_limit, db_retention) = ctx
+        .data()
+        .db
+        .run_blocking(move |db| db.get_guild_settings(guild_id_val))
+        .await?;
 
     // Fallback to config defaults
     let limit = db_limit.unwrap_or(ctx.data().config.context_message_limit);
@@ -278,9 +471,11 @@ pub async fn set(
 
     ctx.defer().await?;
 
+    let guild_id_val = guild_id.get();
     ctx.data()
         .db
-        .set_guild_settings(guild_id.get(), limit, retention)?;
+        .run_blocking(move |db| db.set_guild_settings(guild_id_val, limit, retention))
+        .await?;
 
     let mut confirmations = Vec::new();
     if let Some(l) = limit {

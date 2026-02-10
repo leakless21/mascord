@@ -18,7 +18,10 @@ CREATE INDEX IF NOT EXISTS idx_messages_guild_date ON messages (guild_id, timest
 CREATE TABLE IF NOT EXISTS settings (
     guild_id TEXT PRIMARY KEY,
     context_limit INTEGER,
-    context_retention INTEGER
+    context_retention INTEGER,
+    system_prompt TEXT,
+    agent_confirm_timeout_secs INTEGER,
+    voice_idle_timeout_secs INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS channel_summaries (
@@ -46,6 +49,14 @@ CREATE TABLE IF NOT EXISTS channel_milestones (
 );
 CREATE INDEX IF NOT EXISTS idx_milestones_channel_created ON channel_milestones (channel_id, created_at);
 
+CREATE TABLE IF NOT EXISTS user_memory (
+    user_id TEXT PRIMARY KEY,
+    summary TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT TRUE,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME
+);
+
 CREATE TABLE IF NOT EXISTS reminders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     guild_id TEXT NOT NULL,
@@ -53,16 +64,11 @@ CREATE TABLE IF NOT EXISTS reminders (
     user_id TEXT NOT NULL,
     message TEXT NOT NULL,
     remind_at DATETIME NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    delivery_attempts INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    sent_at DATETIME,
-    cancelled_at DATETIME,
-    last_error TEXT
+    delivered_at DATETIME
 );
-CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders (status, remind_at);
-CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders (guild_id, user_id, status, remind_at);
+CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders (remind_at, delivered_at);
+CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders (user_id, delivered_at);
 
 -- Note: sqlite-vec setup usually involves virtual tables.
 -- Mascord currently uses in-process Rust vector scoring over BLOB embeddings.

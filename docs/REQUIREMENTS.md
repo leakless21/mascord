@@ -11,6 +11,7 @@
 - **R-007**: Fail fast on excessive Discord rate limits (e.g., > 60s) during startup to avoid unresponsive hanging.
 - **R-008**: Provide clear, actionable error messages when external services (Discord, LLM, MCP) are unavailable or rate-limited.
 - **R-009**: Surface command errors to users with a consistent, friendly response while logging full details.
+- **R-010**: Convert Markdown responses into Discord-supported formatting, degrading unsupported elements (tables, images, HTML) into readable text.
 - Event handling for message tracking (for RAG).
 - Multi-channel support.
 
@@ -23,6 +24,14 @@
     - **Long-Term**: On-demand search of full history.
 - **Context Retention Modes**: `CONTEXT_RETENTION_HOURS=0` disables time filtering for short-term memory (count-only).
 - Streaming responses (if supported by Discord/Framework).
+- **User Memory (Opt-in)**:
+  - Allow users to explicitly opt-in to a personal, curated memory profile (preferences, ongoing projects).
+  - Provide commands to view, edit, and delete user memory.
+  - Store a **global** user memory profile (applies across servers and DMs).
+  - Inject a short memory snippet into prompts; allow the agent to fetch full details via a tool when needed.
+  - Automatically update memory when enabled, using guardrails to avoid sensitive data.
+  - Support temporary no-memory requests via natural language cues (do not use or update memory).
+  - Support retention policies (TTL/expiry) and hard-delete on request.
 
 ### 3. RAG (Retrieval-Augmented Generation)
 
@@ -49,7 +58,16 @@
 - Basic controls: Pause, Resume, Skip, Stop, Queue list.
 - Songbird-based native implementation for low footprint.
 
-### 5. Natural Language Task Execution (Agent)
+### 5. Reminders
+
+- Allow users to set one-time reminders with human-friendly durations (e.g., minutes/hours/days).
+- Persist reminders in SQLite so they survive restarts.
+- Deliver reminders in the originating channel and mention the requesting user.
+- Prevent mass mentions (`@everyone`, roles) from reminder text.
+- Provide commands to list and cancel pending reminders.
+- Throttle reminder dispatching to avoid Discord API rate limits.
+
+### 6. Natural Language Task Execution (Agent)
 
 - Orchestrate complex tasks using natural language.
 - Execute built-in tools (Music, RAG, Admin).
@@ -58,26 +76,19 @@
 - Configurable iteration limits and safety checks.
 
 
-### 6. Reminder Scheduling
-
-- Support user-created reminders via slash commands.
-- Accept natural-language schedule input (relative durations and clock-time expressions).
-- Require explicit units for relative durations (e.g., `10 minutes`, not `10`).
-- Persist reminders in SQLite so pending reminders survive restarts.
-- Provide reminder management actions: list pending reminders and cancel by ID.
-- Deliver reminders in the original channel while pinging only the target user.
-
 ### 7. Administration & Security
 
 - Admin-only commands restricted by `OWNER_ID`.
 - Secure handling of API keys for LLM and Embedding services.
 - Graceful shutdown triggered by authorized users.
+- Provide a user-facing mechanism to delete their stored data (messages and user memory) on request.
 
 ### 8. Configuration & Deployment
 
 - The bot must provide sensible defaults for all configuration variables (LLM URLs, ports, prompts) to ensure "zero-config" functionality beyond Discord credentials.
 - All configuration should be overrideable via environment variables or a `.env` file.
 - The system should maintain an up-to-date `.env.example` that matches these internal defaults.
+- Server owners must be able to override selected runtime settings via slash commands, with per-guild values persisted in the database (e.g., system prompt, agent confirmation timeout, voice idle timeout).
 
 ## Non-Functional Requirements
 

@@ -24,7 +24,8 @@ The tooling domain handles the registration, discovery, and execution of callabl
 ## Built-in Tools
 
 - `play_music`: Triggers YouTube playback via Songbird/yt-dlp.
-- `search_local_history`: Performs RAG search over indexed Discord messages.
+- `search_local_history`: Performs RAG search over indexed Discord messages and returns a summary plus source provenance.
+- `get_user_memory`: Fetches a user's full global memory profile when detailed personalization is needed.
 - `shutdown`: Admin tool for graceful bot termination.
 
 ## MCP Integration

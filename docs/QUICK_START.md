@@ -47,7 +47,13 @@ Also from Developer Portal:
 - General Information tab
 - Set in `.env`: `APPLICATION_ID=123456789`
 
-### 3. LLAMA_URL (Optional but Recommended)
+### 3. Message Content Intent
+
+Enable **Message Content Intent** in the Discord Developer Portal:
+- Application → **Bot** → **Privileged Gateway Intents**
+- Required for reading message content (mentions/replies, memory, RAG), and mandatory once the bot is in 100+ servers.
+
+### 4. LLAMA_URL (Optional but Recommended)
 
 Choose one:
 
@@ -107,6 +113,14 @@ tail -f /tmp/mascord.log
 pkill -f "target/release/mascord"
 ```
 
+### Restart Bot
+
+```bash
+./restart.sh
+# Or for debug mode:
+./restart.sh debug
+```
+
 ---
 
 ## 💬 Test Your Bot
@@ -150,6 +164,14 @@ LONG_TERM_RETENTION_DAYS=365
 
 # Summarize conversations
 SUMMARIZATION_ENABLED=true
+
+# Background embedding indexer (runs every 5 minutes by default)
+EMBEDDING_INDEXER_ENABLED=true
+EMBEDDING_INDEXER_INTERVAL_SECS=300  # 5 minutes
+EMBEDDING_INDEXER_BATCH_SIZE=25
+
+# MCP server timeout (prevents hanging on unresponsive servers)
+MCP_TIMEOUT_SECS=60
 ```
 
 ---
