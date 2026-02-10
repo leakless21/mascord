@@ -72,13 +72,22 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 - **Dependencies**: `src/llm/client.rs`, `src/db/mod.rs`.
 - **Policy**: Rolling summary with hard size caps, periodic refresh, and milestone anchors extracted from summaries to prevent long-term drift.
 
-### 10. Reply Handler
+### 10. Reminder Service
+
+- **Responsibility**: Accepting reminder requests, persisting reminder state, and dispatching due reminders from a background worker.
+- **Input model**: Natural-language schedule parsing for relative durations (explicit units required), clock times, and UTC datetime strings.
+- **Compute**: Low (periodic polling and message sends).
+- **Interface**: `src/commands/remind.rs`, `src/reminder.rs`.
+- **Dependencies**: `src/db/mod.rs`, Discord HTTP API.
+- **Reliability**: Uses persisted statuses (`pending`, `processing`, `sent`, `cancelled`, `failed`) to avoid duplicate deliveries and recover cleanly after restarts.
+
+### 11. Reply Handler
 
 - **Responsibility**: Detecting and processing Discord message replies to the bot.
 - **Interface**: `src/reply.rs`.
 - **Dependencies**: `src/commands/chat.rs`, `src/llm/agent.rs`.
 
-### 11. Mention Handler
+### 12. Mention Handler
 
 - **Responsibility**: Detecting and processing Discord messages that mention/tag the bot.
 - **Interface**: `src/mention.rs`.
@@ -115,6 +124,7 @@ The `Config` struct in `src/config.rs` is responsible for merging these sources 
   - `channel_summaries`: Condensed Working Memory snapshots (channel_id, summary, updated_at).
   - `channel_settings`: Per-channel memory control (guild_id, channel_id, enabled, memory_start_date).
   - `settings`: Per-server configurations.
+  - `reminders`: Durable user reminders with delivery state and audit fields.
 
 ## Interfaces
 
@@ -130,6 +140,7 @@ graph LR
         ReplyHandler --> Agent
         Framework --> MentionHandler[Mention Handler - src/mention.rs]
         MentionHandler --> Agent
+        Framework --> ReminderSvc[Reminder Service - src/reminder.rs]
         Framework --> Voice[Voice Service - src/voice/]
         Framework --> RAG[RAG Service - src/rag/]
         Framework --> Cache[Caching Layer - src/cache.rs]

@@ -3,4 +3,5 @@ pub mod chat;
 pub mod mcp;
 pub mod music;
 pub mod rag;
+pub mod remind;
 pub mod settings;

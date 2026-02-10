@@ -1,7 +1,7 @@
 # Gap Analysis: Mascord Discord Bot
 
 This document tracks identified gaps, edge cases, and potential issues requiring remediation.
-Last reviewed: February 3, 2026 (hybrid retrieval, milestone extraction, retention override documented; no new runtime gaps added).
+Last reviewed: February 10, 2026 (reminder scheduling delivered with durable queue + dispatcher; runtime gaps updated).
 
 ## Legend
 
@@ -184,7 +184,7 @@ Last reviewed: February 3, 2026 (hybrid retrieval, milestone extraction, retenti
 
 ---
 
-## 7. Configuration & Security
+## 8. Configuration & Security
 
 ### GAP-015: API Keys Logged in Debug Mode 🟡
 
@@ -195,7 +195,7 @@ Last reviewed: February 3, 2026 (hybrid retrieval, milestone extraction, retenti
 
 ---
 
-## 8. Platform Support
+## 9. Platform Support
 
 ### GAP-021: macOS Support Not Documented or Validated 🟡
 
@@ -203,6 +203,17 @@ Last reviewed: February 3, 2026 (hybrid retrieval, milestone extraction, retenti
 **Description**: macOS is not listed as a supported platform, and there is no CI or documented validation of macOS builds/runtime behavior.
 **Impact**: macOS users may hit build or runtime issues without clear guidance; support expectations are unclear.
 **Resolution**: Document macOS support and prerequisites, and add CI (or a manual test checklist) to validate macOS builds and basic runtime.
+
+---
+
+## 10. Reminder Scheduling
+
+### GAP-022: No User Reminder Functionality 🟡
+
+**Status**: Resolved ✅
+**Description**: The bot previously lacked a first-party reminder command and durable scheduling path.
+**Impact**: Users had no built-in way to set timed follow-ups in Discord.
+**Resolution**: Added `/remind set`, `/remind list`, `/remind cancel`, and `/remind help`; implemented SQLite-backed reminder persistence and a background dispatcher with delivery state transitions (`pending/processing/sent/cancelled/failed`). `/remind set` accepts natural-language schedule inputs (relative durations with explicit units, clock times, and UTC datetimes).
 
 ---
 
@@ -221,6 +232,7 @@ Last reviewed: February 3, 2026 (hybrid retrieval, milestone extraction, retenti
 - [x] **GAP-017**: Bot Hangs on Startup Rate Limit (Phase 5)
 - [x] **GAP-019**: Missing Cookie File Validation (Phase 6)
 - [x] **GAP-020**: Command Errors Not Surfaced (Phase 6)
+- [x] **GAP-022**: No User Reminder Functionality (Phase 7)
 
 ---
 
@@ -232,6 +244,7 @@ Last reviewed: February 3, 2026 (hybrid retrieval, milestone extraction, retenti
 | `config.rs` | ✅ Defaults, missing vars | Custom Debug redaction |
 | `context.rs` | ✅ Context retrieval, limits | Retention time filtering |
 | `db/mod.rs` | ✅ Init, save, settings | Search, summaries |
+| `reminder.rs` | 🟡 Dispatcher covered via DB-state tests only | End-to-end delivery path with mocked Discord HTTP |
 | `mcp/` | ❌ None | Connection, tool execution |
 | `llm/` | ❌ None | Timeout handling, errors |
 | `voice/` | ❌ None | Join/leave, queue |

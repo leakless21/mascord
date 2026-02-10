@@ -9,9 +9,11 @@ General bot setup, command registration, and event lifecycle management.
 - `src/main.rs`: Entry point and Poise framework initialization.
 - `src/config.rs`: Configuration handling (env vars, constants).
 - `src/commands/mod.rs`: Command registration and grouping.
+- `src/commands/remind.rs`: Slash commands for natural-language reminder creation, listing, and cancellation.
 - `src/reply.rs`: Reply-to-bot message handler (auto-chat).
 - `src/mention.rs`: Mention/tag message handler (auto-chat).
 - `src/summarize.rs`: Background summarization manager (rolling summary with caps, refresh, milestones).
+- `src/reminder.rs`: Background reminder dispatcher and reminder service logic.
 
 ## Configuration & Environment
 
@@ -54,6 +56,8 @@ Uses Poise's shared `Data` struct (thread-safe, wrapped in `Arc` by the framewor
 - `MessageCache`: In-memory LRU cache of recent messages.
 - `ToolRegistry`: Registry of callable tools.
 - `McpClientManager`: Manager for MCP server connections.
+
+In addition to shared `Data`, startup also launches background tasks (summarization, cleanup, embedding indexer, reminders). The reminder dispatcher reads due reminders from SQLite and posts them via Discord HTTP.
 
 ## Error Handling
 

@@ -15,6 +15,7 @@
   - **Deep Integration**: Uses `yt-dlp` and `songbird` with cookie support for detection bypass and age-restricted content.
 - 🤖 **Agentic Core**: An autonomous agent trained to use internal and external tools (via MCP) to solve complex, multi-step requests.
 - ⚙️ **Configurable Settings**: Per-guild configuration for context limits, retention policies, and manual working-memory refreshes.
+- ⏰ **Reminder Scheduler**: Durable natural-language reminders (`in 2 days`, `3 hours`, `at 22:15`) with list/cancel support and background delivery.
 
 ---
 
@@ -340,6 +341,7 @@ Use `/agent` for requests that require multiple actions.
 |---------|-------------|
 | `/chat` | Chat with the bot using current context memory. |
 | `/search` | Manually search through the RAG database. |
+| `/remind` | Set, list, cancel reminders, and view in-Discord usage with `/remind help`. |
 | `/agent` | Task the bot to perform a complex, multi-step action. |
 | `/play` | Stream audio from a YouTube URL. |
 | `/queue` | View the interactive, paginated music player. |

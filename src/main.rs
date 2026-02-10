@@ -1,5 +1,5 @@
 use anyhow::Context as AnyhowContext;
-use mascord::commands::{admin, chat, mcp, music, rag, settings};
+use mascord::commands::{admin, chat, mcp, music, rag, remind, settings};
 use mascord::{config::Config, Data};
 use poise::serenity_prelude as serenity;
 use serenity::all::Http;
@@ -95,6 +95,7 @@ async fn main() -> anyhow::Result<()> {
             commands: vec![
                 chat::chat(),
                 rag::search(),
+                remind::remind(),
                 music::join(),
                 music::play(),
                 music::skip(),
@@ -226,6 +227,9 @@ async fn main() -> anyhow::Result<()> {
 
                 // Initialize cache with capacity of 1000 messages
                 let cache = mascord::cache::MessageCache::new(1000);
+
+                // Start background reminder dispatcher.
+                mascord::reminder::start_dispatcher(db.clone(), ctx.http.clone());
 
                 // Initialize Tools
                 let mut registry = mascord::tools::ToolRegistry::new();

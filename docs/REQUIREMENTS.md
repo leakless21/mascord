@@ -58,13 +58,22 @@
 - Configurable iteration limits and safety checks.
 
 
-### 6. Administration & Security
+### 6. Reminder Scheduling
+
+- Support user-created reminders via slash commands.
+- Accept natural-language schedule input (relative durations and clock-time expressions).
+- Require explicit units for relative durations (e.g., `10 minutes`, not `10`).
+- Persist reminders in SQLite so pending reminders survive restarts.
+- Provide reminder management actions: list pending reminders and cancel by ID.
+- Deliver reminders in the original channel while pinging only the target user.
+
+### 7. Administration & Security
 
 - Admin-only commands restricted by `OWNER_ID`.
 - Secure handling of API keys for LLM and Embedding services.
 - Graceful shutdown triggered by authorized users.
 
-### 7. Configuration & Deployment
+### 8. Configuration & Deployment
 
 - The bot must provide sensible defaults for all configuration variables (LLM URLs, ports, prompts) to ensure "zero-config" functionality beyond Discord credentials.
 - All configuration should be overrideable via environment variables or a `.env` file.

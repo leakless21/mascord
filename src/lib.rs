@@ -9,6 +9,7 @@ pub mod llm;
 pub mod mcp;
 pub mod mention;
 pub mod rag;
+pub mod reminder;
 pub mod reply;
 pub mod summarize;
 pub mod tools;

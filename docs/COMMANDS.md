@@ -124,6 +124,70 @@ Delete old messages from this channel's history.
 
 ---
 
+## Reminder Commands
+
+### `/remind set [when] [message]`
+
+**Description**: Schedule a personal reminder in the current channel.
+
+**Usage**:
+```
+/remind set in 2 days, 30 minutes Prepare release notes
+/remind set 3 hours Check deployment
+/remind set 10 minutes Stand up and stretch
+/remind set at 5:30PM Send status update
+/remind set at 22:15 Take medicine
+/remind set 2026-02-10 17:30 Submit report
+```
+
+**Notes**:
+- `when` supports relative durations, clock times, and UTC datetimes
+- Plain numbers are **not** accepted; include a time unit (`10 minutes`, `3 hours`)
+- Delay range: from 10 seconds to `43200` minutes (30 days)
+- Reminder text max length: 500 characters
+- The reminder delivery pings only you (not `@everyone`/roles)
+- Clock-style times (`at 22:15`, `at 5:30PM`) are interpreted in UTC
+
+---
+
+### `/remind help`
+
+**Description**: Show reminder syntax and examples directly in Discord.
+
+**Usage**:
+```
+/remind help
+```
+
+---
+
+### `/remind list`
+
+**Description**: Show your pending reminders in the current server.
+
+**Usage**:
+```
+/remind list
+```
+
+**What happens**:
+1. Fetches your pending reminders for this guild
+2. Shows IDs, channels, and due times
+3. Provides IDs for cancellation
+
+---
+
+### `/remind cancel [reminder_id]`
+
+**Description**: Cancel one of your pending reminders by ID.
+
+**Usage**:
+```
+/remind cancel 42
+```
+
+---
+
 ## Music Commands
 
 ### `/play [url|search_term]`
@@ -300,6 +364,7 @@ Show bot status and statistics.
 ### 🔍 Memory & Search
 - `/search` - Query message history
 - `/rag enable/disable/status/purge` - Manage long-term memory
+- `/remind set/list/cancel` - Manage personal reminders
 
 ### 🎵 Music
 - `/play` - Play audio from URL or search

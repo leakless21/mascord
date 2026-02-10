@@ -103,6 +103,22 @@ pub struct ChannelSummaryRecord {
     pub refreshed_at: String,
 }
 
+pub struct ReminderRecord {
+    pub id: i64,
+    pub channel_id: String,
+    pub message: String,
+    pub remind_at: String,
+}
+
+pub struct DueReminderRecord {
+    pub id: i64,
+    pub channel_id: String,
+    pub user_id: String,
+    pub message: String,
+    pub remind_at: String,
+    pub delivery_attempts: i64,
+}
+
 impl Database {
     pub fn new(config: &Config) -> anyhow::Result<Self> {
         let conn = Connection::open(&config.database_url)
@@ -170,6 +186,25 @@ impl Database {
             );
             CREATE INDEX IF NOT EXISTS idx_milestones_channel_created
               ON channel_milestones (channel_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id TEXT NOT NULL,
+                channel_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                message TEXT NOT NULL,
+                remind_at DATETIME NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                delivery_attempts INTEGER NOT NULL DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                sent_at DATETIME,
+                cancelled_at DATETIME,
+                last_error TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders (status, remind_at);
+            CREATE INDEX IF NOT EXISTS idx_reminders_user
+              ON reminders (guild_id, user_id, status, remind_at);
             ",
         )
         .context("Failed to initialize database schema")?;
@@ -435,6 +470,199 @@ impl Database {
         }
 
         tx.commit()?;
+        Ok(())
+    }
+
+    pub fn count_pending_reminders_for_user(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+    ) -> anyhow::Result<usize> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT COUNT(*)
+             FROM reminders
+             WHERE guild_id = ?1
+               AND user_id = ?2
+               AND status = 'pending'",
+        )?;
+        let count: i64 = stmt.query_row((guild_id, user_id), |row| row.get(0))?;
+        Ok(count.max(0) as usize)
+    }
+
+    pub fn create_reminder(
+        &self,
+        guild_id: &str,
+        channel_id: &str,
+        user_id: &str,
+        message: &str,
+        remind_at: &str,
+    ) -> anyhow::Result<i64> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "INSERT INTO reminders
+                 (guild_id, channel_id, user_id, message, remind_at, status, delivery_attempts, created_at, updated_at)
+             VALUES
+                 (?1, ?2, ?3, ?4, ?5, 'pending', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            (guild_id, channel_id, user_id, message, remind_at),
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn list_pending_reminders_for_user(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<ReminderRecord>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, channel_id, message, remind_at
+             FROM reminders
+             WHERE guild_id = ?1
+               AND user_id = ?2
+               AND status = 'pending'
+             ORDER BY remind_at ASC
+             LIMIT ?3",
+        )?;
+
+        let rows = stmt.query_map((guild_id, user_id, limit), |row| {
+            Ok(ReminderRecord {
+                id: row.get(0)?,
+                channel_id: row.get(1)?,
+                message: row.get(2)?,
+                remind_at: row.get(3)?,
+            })
+        })?;
+
+        let mut reminders = Vec::new();
+        for row in rows {
+            reminders.push(row?);
+        }
+        Ok(reminders)
+    }
+
+    pub fn cancel_pending_reminder_for_user(
+        &self,
+        reminder_id: i64,
+        guild_id: &str,
+        user_id: &str,
+    ) -> anyhow::Result<bool> {
+        let conn = self.lock_conn()?;
+        let updated = conn.execute(
+            "UPDATE reminders
+             SET status = 'cancelled',
+                 cancelled_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?1
+               AND guild_id = ?2
+               AND user_id = ?3
+               AND status = 'pending'",
+            (reminder_id, guild_id, user_id),
+        )?;
+        Ok(updated > 0)
+    }
+
+    pub fn reset_processing_reminders(&self) -> anyhow::Result<usize> {
+        let conn = self.lock_conn()?;
+        let updated = conn.execute(
+            "UPDATE reminders
+             SET status = 'pending',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE status = 'processing'",
+            [],
+        )?;
+        Ok(updated)
+    }
+
+    pub fn claim_due_reminders(&self, limit: usize) -> anyhow::Result<Vec<DueReminderRecord>> {
+        let mut conn = self.lock_conn()?;
+        let tx = conn.transaction()?;
+
+        let mut stmt = tx.prepare(
+            "SELECT id, channel_id, user_id, message, remind_at, delivery_attempts
+             FROM reminders
+             WHERE status = 'pending'
+               AND remind_at <= CURRENT_TIMESTAMP
+             ORDER BY remind_at ASC
+             LIMIT ?1",
+        )?;
+
+        let rows = stmt.query_map([limit], |row| {
+            Ok(DueReminderRecord {
+                id: row.get(0)?,
+                channel_id: row.get(1)?,
+                user_id: row.get(2)?,
+                message: row.get(3)?,
+                remind_at: row.get(4)?,
+                delivery_attempts: row.get(5)?,
+            })
+        })?;
+
+        let mut due = Vec::new();
+        for row in rows {
+            due.push(row?);
+        }
+        drop(stmt);
+
+        let mut claimed = Vec::new();
+        for reminder in due {
+            let updated = tx.execute(
+                "UPDATE reminders
+                 SET status = 'processing',
+                     delivery_attempts = delivery_attempts + 1,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?1
+                   AND status = 'pending'",
+                [reminder.id],
+            )?;
+            if updated == 1 {
+                claimed.push(reminder);
+            }
+        }
+
+        tx.commit()?;
+        Ok(claimed)
+    }
+
+    pub fn mark_reminder_sent(&self, reminder_id: i64) -> anyhow::Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "UPDATE reminders
+             SET status = 'sent',
+                 sent_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP,
+                 last_error = NULL
+             WHERE id = ?1
+               AND status = 'processing'",
+            [reminder_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_reminder_delivery_failure(
+        &self,
+        reminder_id: i64,
+        max_attempts: i64,
+        error_message: &str,
+    ) -> anyhow::Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "UPDATE reminders
+             SET status = CASE
+                    WHEN delivery_attempts >= ?2 THEN 'failed'
+                    ELSE 'pending'
+                 END,
+                 remind_at = CASE
+                    WHEN delivery_attempts >= ?2 THEN remind_at
+                    ELSE datetime('now', '+1 minute')
+                 END,
+                 updated_at = CURRENT_TIMESTAMP,
+                 last_error = ?3
+             WHERE id = ?1
+               AND status = 'processing'",
+            (reminder_id, max_attempts, error_message),
+        )?;
         Ok(())
     }
 
@@ -1083,6 +1311,115 @@ mod tests {
             .collect();
         assert_eq!(ids.len(), 1);
         assert_eq!(ids[0], "new");
+    }
+
+    #[test]
+    fn test_reminder_create_list_and_cancel() {
+        let config = test_config();
+        let db = Database::new(&config).unwrap();
+        db.execute_init().unwrap();
+
+        let reminder_id = db
+            .create_reminder("g1", "c1", "u1", "ship the patch", "2099-01-01 12:00:00")
+            .unwrap();
+
+        let count = db.count_pending_reminders_for_user("g1", "u1").unwrap();
+        assert_eq!(count, 1);
+
+        let reminders = db.list_pending_reminders_for_user("g1", "u1", 10).unwrap();
+        assert_eq!(reminders.len(), 1);
+        assert_eq!(reminders[0].id, reminder_id);
+        assert_eq!(reminders[0].channel_id, "c1");
+        assert_eq!(reminders[0].message, "ship the patch");
+
+        let cancelled = db
+            .cancel_pending_reminder_for_user(reminder_id, "g1", "u1")
+            .unwrap();
+        assert!(cancelled);
+        assert_eq!(db.count_pending_reminders_for_user("g1", "u1").unwrap(), 0);
+    }
+
+    #[test]
+    fn test_reminder_claim_due_and_mark_sent() {
+        let config = test_config();
+        let db = Database::new(&config).unwrap();
+        db.execute_init().unwrap();
+
+        let due_id = db
+            .create_reminder("g1", "c1", "u1", "due now", "2000-01-01 00:00:00")
+            .unwrap();
+        db.create_reminder("g1", "c1", "u1", "future", "2999-01-01 00:00:00")
+            .unwrap();
+
+        let claimed = db.claim_due_reminders(10).unwrap();
+        assert_eq!(claimed.len(), 1);
+        assert_eq!(claimed[0].id, due_id);
+
+        // Should not be claimable again while processing.
+        assert!(db.claim_due_reminders(10).unwrap().is_empty());
+
+        db.mark_reminder_sent(due_id).unwrap();
+
+        let conn = db.conn.lock().unwrap();
+        let status: String = conn
+            .query_row(
+                "SELECT status FROM reminders WHERE id = ?1",
+                [due_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "sent");
+    }
+
+    #[test]
+    fn test_reminder_delivery_failure_requeues_and_fails() {
+        let config = test_config();
+        let db = Database::new(&config).unwrap();
+        db.execute_init().unwrap();
+
+        let reminder_id = db
+            .create_reminder("g1", "c1", "u1", "retry me", "2000-01-01 00:00:00")
+            .unwrap();
+
+        let claimed = db.claim_due_reminders(10).unwrap();
+        assert_eq!(claimed.len(), 1);
+        assert_eq!(claimed[0].id, reminder_id);
+
+        db.mark_reminder_delivery_failure(reminder_id, 3, "temporary outage")
+            .unwrap();
+        let conn = db.conn.lock().unwrap();
+        let status_after_retry: String = conn
+            .query_row(
+                "SELECT status FROM reminders WHERE id = ?1",
+                [reminder_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+        assert_eq!(status_after_retry, "pending");
+
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE reminders
+             SET status = 'processing',
+                 delivery_attempts = 3
+             WHERE id = ?1",
+            [reminder_id],
+        )
+        .unwrap();
+        drop(conn);
+
+        db.mark_reminder_delivery_failure(reminder_id, 3, "permanent failure")
+            .unwrap();
+        let conn = db.conn.lock().unwrap();
+        let final_status: String = conn
+            .query_row(
+                "SELECT status FROM reminders WHERE id = ?1",
+                [reminder_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(final_status, "failed");
     }
 
     #[test]
