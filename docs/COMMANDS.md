@@ -28,34 +28,13 @@ Complete list of available Mascord commands.
 - `CONTEXT_RETENTION_HOURS` - How old messages can be
 - `SYSTEM_PROMPT` - Bot's personality
 
----
-
-### `/agent [request]`
-
-**Description**: Task the bot to perform a complex, multi-step action.
-
-**Usage**:
-```
-/agent Search for the last time we discussed authentication, summarize it, and then play some lofi music
-/agent Find recent messages about API design and create a summary
-/agent Search the history and tell me what we decided about database schema
-```
-
-**What happens**:
-1. Bot analyzes your request
-2. Breaks it down into sub-tasks (search, summarize, execute)
-3. Calls appropriate tools (RAG, music player, etc.)
-4. Provides result
-
-**Related Settings**:
-- `MCP_TOOLS_REQUIRE_CONFIRMATION` - Require approval before executing tools
-- `AGENT_CONFIRM_TIMEOUT_SECS` - How long to wait for confirmation
+**Agent tools**: The same `/chat` flow can invoke built-in tools (history search, web tools when configured, music, etc.). Some tools show a confirmation button first; timeout is controlled by `AGENT_CONFIRM_TIMEOUT_SECS` (and per-guild overrides via `/settings agent_timeout`).
 
 ---
 
 ## Search & Memory Commands
 
-### `/search [query]` (or `/rag search`)
+### `/search [query]`
 
 **Description**: Search through message history (long-term memory).
 
@@ -76,51 +55,7 @@ Complete list of available Mascord commands.
 - Can search months of history (if indexed)
 - Filters by date and channel
 
-**Related Commands**:
-- `/rag enable` - Enable tracking for this channel
-- `/rag disable` - Stop tracking this channel
-- `/rag status` - Check tracking status
-
----
-
-### `/rag [enable|disable|status|purge]`
-
-**Description**: Manage long-term memory (Retrieval-Augmented Generation).
-
-**Subcommands**:
-
-#### `/rag enable`
-Enable long-term message tracking for this channel.
-
-```
-/rag enable
-```
-
-#### `/rag disable`
-Stop tracking messages in this channel (keeps existing messages).
-
-```
-/rag disable
-```
-
-#### `/rag status`
-Show tracking status for this channel.
-
-```
-/rag status
-```
-
-#### `/rag purge [days]`
-Delete old messages from this channel's history.
-
-```
-/rag purge 30      # Delete messages older than 30 days
-/rag purge 0       # Delete all messages
-```
-
-**Related Settings**:
-- `EMBEDDING_INDEXER_ENABLED` - Background message indexing
-- `LONG_TERM_RETENTION_DAYS` - Auto-purge old messages
+**Related commands** (moderators, **Manage Server**): use **`/settings memory`** to enable/disable tracking per channel, set scope, list settings, or purge stored messages (see below).
 
 ---
 
@@ -222,6 +157,12 @@ Show accepted reminder formats and examples directly in Discord.
 
 ## Music Commands
 
+Requires **Connect** and **Speak** in the server. Use **`/join`** to join your current voice channel without playing; **`/play`** will auto-join if needed.
+
+### `/join`
+
+Join the voice channel you are currently in.
+
 ### `/play [url|search_term]`
 
 **Description**: Play audio from YouTube or other supported sources.
@@ -271,20 +212,13 @@ Show accepted reminder formats and examples directly in Discord.
 - Total queue duration
 - Interactive buttons for control
 
----
+### `/skip`
 
-### `/volume [level]`
+Skip the current track (if any).
 
-**Description**: Adjust playback volume.
+### `/leave`
 
-**Usage**:
-```
-/volume 50    # 50% volume
-/volume 100   # 100% volume
-/volume 10    # 10% volume (very quiet)
-```
-
-**Range**: 0-200 (0 = mute, 100 = normal, 200 = maximum)
+Stop playback and disconnect from voice.
 
 ---
 
@@ -296,19 +230,33 @@ Show accepted reminder formats and examples directly in Discord.
 
 **Categories**:
 
-#### `/settings context`
-Manage conversation context and memory limits.
+#### `/settings context get`
+
+Show current context limit and retention for this server.
+
+#### `/settings context set`
+
+Update context settings (provide at least one option):
 
 ```
-/settings context limit 100        # Remember last 100 messages
-/settings context retention 48     # Remember messages from last 48 hours
-/settings context summarize        # Manually trigger working memory summarization
+/settings context set limit:50 retention:48
 ```
 
-**Options**:
-- `limit` - Maximum recent messages to include (1-500)
-- `retention` - Hours of messages to keep (0-unlimited)
-- `summarize` - Create a summary of conversation history
+- `limit` — max recent messages (1–100, enforced by the command)
+- `retention` — hours of history to consider (1–168)
+
+#### `/settings context summarize`
+
+Manually run working-memory summarization for the current channel.
+
+#### `/settings memory`
+
+Per-channel **long-term** tracking (RAG persistence), moderator-only:
+
+- **`list`** — channels with custom memory settings
+- **`enable` / `disable`** — turn tracking on or off for a chosen channel
+- **`scope`** — set a memory start date (or `none` for full history)
+- **`purge`** — delete stored messages for a channel (confirm button; optional `before_date`)
 
 #### `/settings system_prompt`
 View or update the assistant's system prompt for this server.
@@ -340,97 +288,47 @@ View or update the voice idle timeout for auto-disconnect.
 
 ---
 
-## Admin Commands
+## Admin commands (bot owner)
 
-### `/admin [command]`
+These slash commands are restricted to the configured **`OWNER_ID`** (hidden from public help).
 
-**Description**: Administrator-only commands (requires owner ID).
+### `/shutdown`
 
-**Subcommands**:
+Gracefully disconnect from Discord and exit the process (under **systemd** or **`run-persistent.sh`**, the supervisor can restart the bot).
 
-#### `/admin shutdown`
-Gracefully shut down the bot.
+### `/restart`
 
-```
-/admin shutdown
-```
-
-**What happens**:
-1. Bot saves current state
-2. Closes database connections
-3. Disconnects from Discord
-4. Exits cleanly
-
-#### `/admin reload`
-Reload configuration from `.env`.
-
-```
-/admin reload
-```
-
-#### `/admin status`
-Show bot status and statistics.
-
-```
-/admin status
-```
+Same as shutdown with a “restarting” message; use your process supervisor to bring the bot back.
 
 ---
 
-## Help Commands
+## Discovering commands
 
-### `/help`
-
-**Description**: Show all available commands and their descriptions.
-
-**Usage**:
-```
-/help
-```
-
-**Shows**:
-- List of all commands
-- Brief description of each
-- How to get more help
-
-### `/help [command]`
-
-**Description**: Get detailed help for a specific command.
-
-**Usage**:
-```
-/help chat
-/help agent
-/help play
-```
+Discord’s slash-command UI lists available commands and options. There is no separate `/help` command in this build.
 
 ---
 
 ## Command Categories
 
 ### 🧠 Conversation
-- `/chat` - Chat with the bot
-- `/agent` - Multi-step task execution
-- `/help` - Get help
+- `/about` — Bot metadata
+- `/chat` — Chat and agent tools (with confirmation when required)
+- `/reminder` — Create, list, or cancel reminders
 
-### 🔍 Memory & Search
-- `/search` - Query message history
-- `/rag enable/disable/status/purge` - Manage long-term memory
-- `/memory enable/disable/show/remember/forget/delete_data` - Manage your global user memory
+### 🔍 Memory & search
+- `/search` — Query indexed message history
+- `/memory` — Your global opt-in user memory
+- `/settings memory` — Per-channel tracking, scope, purge (moderators)
 
 ### 🎵 Music
-- `/play` - Play audio from URL or search
-- `/queue` - Show music queue
-- `/volume` - Adjust volume
+- `/join`, `/play`, `/skip`, `/leave`, `/queue`
 
 ### ⚙️ Settings
-- `/settings context` - Configure memory
-- `/settings advanced` - Advanced options
+- `/settings context` — Context limit, retention, manual summarize
+- `/settings system_prompt`, `agent_timeout`, `voice_timeout`
 
-### 🔐 Admin
-- `/admin shutdown` - Graceful shutdown
-- `/admin reload` - Reload config
-- `/admin status` - Show status
+### 🔐 Owner
+- `/shutdown`, `/restart`
 
 ---
 
@@ -438,14 +336,9 @@ Show bot status and statistics.
 
 - Want a one-off response without memory? Say things like **"no memory this time"** or **"temporary mode"** in your request.
 
-### Combine Commands
+### Combine requests in `/chat`
 
-You can chain requests:
-```
-/agent Search for our API design notes, summarize them, then play some music
-```
-
-This triggers `/search` + summarization + `/play` automatically.
+Ask for multi-step work in one message; the model may call tools (search, music, etc.) in sequence.
 
 ### Use Reply Feature
 
@@ -499,13 +392,13 @@ The bot needs these Discord permissions to function fully:
 
 ---
 
-## Getting Help
+## Getting help
 
-1. **In Discord**: Type `/help` or `/help [command_name]`
-2. **In Project**: See [README.md](../README.md) and [docs/](.)
-3. **Check Logs**: Look for error messages: `tail -f /tmp/mascord.log`
+1. **In Discord**: Use the slash command picker; descriptions are embedded in each command.
+2. **In the repo**: [README.md](../README.md), [DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md), and this file.
+3. **Logs**: `journalctl -u mascord -f` (systemd) or your terminal if running in the foreground.
 
 ---
 
-**Last Updated**: February 4, 2026
+**Last updated**: March 28, 2026  
 **Version**: Mascord 0.1.0

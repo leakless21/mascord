@@ -16,7 +16,7 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 
 - **Responsibility**: Voice channel state management, audio streaming, queue handling.
 - **Compute**: Low (audio decoding via Opus).
-- **Interface**: `src/voice/player.rs`.
+- **Interface**: `src/voice/` (`mod.rs`, events, cleanup).
 - **Dependencies**: `yt-dlp`, `ffmpeg`, optional `YOUTUBE_COOKIES`.
 
 ### 3. LLM Client (async-openai)
@@ -44,17 +44,11 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 
 ### 6. Tool System
 
-- **Responsibility**: Orchestrating function calls, managing built-in and external tools.
-- **Interface**: `src/tools/`.
+- **Responsibility**: Orchestrating function calls for the agent loop (built-in tools only today).
+- **Interface**: `src/tools/` (`Tool` / `ToolRegistry`, `builtin/`).
 - **Dependencies**: `serde_json`.
 
-### 7. MCP Manager
-
-- **Responsibility**: Managing connections to external Model Context Protocol servers.
-- **Interface**: `src/mcp/`.
-- **Dependencies**: `rmcp`, `tokio`.
-
-### 8. System Prompt & Date/Time Context
+### 7. System Prompt & Date/Time Context
 
 - **Responsibility**: Building system messages with current date/time awareness for LLM prompts.
 - **Awareness**: Automatically injects current UTC and local time into every conversation.
@@ -62,7 +56,7 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 - **Dependencies**: `chrono`.
 - **Injection Points**: `/chat` command, message replies, bot mentions.
 
-### 9. Context Manager (Three-Tier Memory)
+### 8. Context Manager (Three-Tier Memory)
 
 - **Responsibility**: Orchestrating the bot's functional memory across three layers:
     - **Short-Term**: Last 50 verbatim messages (LruCache). Set `CONTEXT_RETENTION_HOURS=0` to disable the time filter and rely on the message limit only.
@@ -72,7 +66,7 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 - **Dependencies**: `src/cache.rs`, `src/db/mod.rs`, `src/summarize.rs`.
 - **Retention**: Long-term memory is retained via `LONG_TERM_RETENTION_DAYS` (separate from short-term `CONTEXT_RETENTION_HOURS`). Set to `0` to disable long-term cleanup.
 
-### 10. Summarization Service
+### 9. Summarization Service
 
 - **Responsibility**: Periodically condensing channel history into persistent summaries to maintain "Working Memory".
 - **Compute**: Low (triggered every 4 hours, requires LLM call).
@@ -80,32 +74,32 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 - **Dependencies**: `src/llm/client.rs`, `src/db/mod.rs`.
 - **Policy**: Rolling summary with hard size caps, periodic refresh, and milestone anchors extracted from summaries to prevent long-term drift.
 
-### 11. Reply Handler
+### 10. Reply Handler
 
 - **Responsibility**: Detecting and processing Discord message replies to the bot.
 - **Interface**: `src/reply.rs`.
 - **Dependencies**: `src/commands/chat.rs`, `src/llm/agent.rs`.
 
-### 12. Mention Handler
+### 11. Mention Handler
 
 - **Responsibility**: Detecting and processing Discord messages that mention/tag the bot.
 - **Interface**: `src/mention.rs`.
 - **Dependencies**: `src/commands/chat.rs`, `src/llm/agent.rs`.
 
-### 12.1. Discord Text Formatter
+### 11.1. Discord Text Formatter
 
 - **Responsibility**: Converts Markdown output into Discord-friendly formatting and degrades unsupported elements (tables, images, HTML).
 - **Interface**: `src/discord_text.rs`.
 - **Dependencies**: `pulldown-cmark`.
 
-### 13. User Memory Service
+### 12. User Memory Service
 
 - **Responsibility**: Store opt-in, curated per-user memory (preferences, projects) and inject it into prompts when relevant.
 - **Storage**: SQLite table for **global** user memory summaries with update timestamps and optional expiry.
 - **Interface**: `/memory` commands backed by a lightweight service layer (`src/services/user_memory.rs`); short snippets are injected into prompts and full detail is available via a tool. Memory auto-updates when enabled, with a temporary no-memory override for specific requests.
 - **Dependencies**: `src/db/mod.rs`, `src/commands/`.
 
-### 14. Reminder Scheduler
+### 13. Reminder Scheduler
 
 - **Responsibility**: Persist and dispatch user-created reminders on schedule.
 - **Interface**: `src/reminders.rs`, `src/services/reminder.rs`, `/reminder` command (`when`+`message` create, `action` for list/cancel/help).
@@ -132,7 +126,6 @@ The `Config` struct in `src/config.rs` is responsible for merging these sources 
 
 - **Target platforms**: macOS and Linux. The codebase is OS-agnostic Rust with no platform-specific modules.
 - **External binaries**: `yt-dlp` and `ffmpeg` must be installed and available on `PATH` for voice playback.
-- **MCP servers**: Optional, but `npx`-based servers require Node.js on the host OS.
 
 ## Data Storage
 
@@ -166,7 +159,6 @@ graph LR
         Framework --> RAG[RAG Service - src/rag/]
         Framework --> Cache[Caching Layer - src/cache.rs]
         Framework --> Tools[Tool System - src/tools/]
-        Framework --> MCP[MCP Manager - src/mcp/]
     end
 
     LLM <--> LlamaServer[llama.cpp Server]
@@ -176,5 +168,4 @@ graph LR
     ReminderSvc --> Discord
     Cache <--> Discord
     Tools --> Builtin[Built-in Tools]
-    MCP <--> MCPServers[External MCP Servers]
 ```

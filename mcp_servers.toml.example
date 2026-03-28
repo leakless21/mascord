@@ -1,0 +1,17 @@
+# Example MCP server definitions (not read by current Mascord — MCP integration was removed).
+# Kept only as a template if you fork and reintroduce MCP tooling.
+#
+# Copy to mcp_servers.toml (gitignored) if your fork expects this file.
+
+# [[servers]]
+# name = "brave-search"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-brave-search"]
+# env = { BRAVE_API_KEY = "your_key_here" }
+
+# [[servers]]
+# name = "fetch"
+# transport = "stdio"
+# command = "uvx"
+# args = ["mcp-server-fetch"]

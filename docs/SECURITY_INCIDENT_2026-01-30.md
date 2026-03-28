@@ -10,7 +10,7 @@ A Brave Search API key was accidentally committed and pushed to the Git reposito
 ## Exposed Credentials
 - **File**: `mcp_servers.toml`
 - **Key Type**: Brave Search API Key
-- **Exposed Value**: `BSAoKRG7z0lzebn08ygar4lOLeo-Z0a` (partial)
+- **Exposed Value**: (redacted from this report; treat any copy as compromised)
 - **First Commit**: `f7eda83` (2026-01-XX)
 - **Pushed to Remote**: Yes
 
@@ -26,8 +26,8 @@ A Brave Search API key was accidentally committed and pushed to the Git reposito
 - Verified file is no longer present in any commit
 
 ### 3. ✅ Prevention Measures Implemented
-- Added `mcp_servers.toml` to `.gitignore`
-- Created `mcp_servers.toml.example` as a safe template
+- Added `mcp_servers.toml` to `.gitignore` (do not re-add the live file to version control)
+- Added `mcp_servers.toml.example` as a commented template only (Mascord no longer ships an MCP client, but the filename remains documented for forks)
 - Updated `.env.example` to include `BRAVE_API_KEY`
 - Updated README.md with security best practices
 - Modified `mcp_servers.toml` to use environment variables instead of hardcoded keys

@@ -8,3 +8,5 @@
 *.log
 .env
 .vscode-format-workflow.md
+# Local MCP config (never commit secrets); see mcp_servers.toml.example
+mcp_servers.toml

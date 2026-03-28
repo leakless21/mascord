@@ -9,7 +9,7 @@
 - **Mention-based Conversations**: Automatically respond when a user mentions/tags the bot (no need for `/chat`).
 - **Universal Embed Responses**: Use embeds for all bot responses to bypass Discord's 2000-character plain text limit.
 - **R-007**: Fail fast on excessive Discord rate limits (e.g., > 60s) during startup to avoid unresponsive hanging.
-- **R-008**: Provide clear, actionable error messages when external services (Discord, LLM, MCP) are unavailable or rate-limited.
+- **R-008**: Provide clear, actionable error messages when external services (Discord, LLM, embeddings, web tools) are unavailable or rate-limited.
 - **R-009**: Surface command errors to users with a consistent, friendly response while logging full details.
 - **R-010**: Convert Markdown responses into Discord-supported formatting, degrading unsupported elements (tables, images, HTML) into readable text.
 - Event handling for message tracking (for RAG).
@@ -71,7 +71,7 @@
 
 - Orchestrate complex tasks using natural language.
 - Execute built-in tools (Music, RAG, Admin).
-- Integrate external tools via Model Context Protocol (MCP) (e.g., Brave Search, Web Fetching).
+- Extend the agent with built-in tools (RAG, web fetch/search where configured, music, admin); external MCP servers are not required for the current codebase.
 - Multi-turn tool calling loop for autonomous problem solving.
 - Configurable iteration limits and safety checks.
 
@@ -118,5 +118,5 @@
 ### 5. Platform Support
 
 - The bot must build and run on macOS (Apple Silicon and Intel) and Linux with the documented prerequisites installed.
-- External runtime dependencies (`yt-dlp`, `ffmpeg`, optional Node.js for MCP servers) must be documented with OS-specific install guidance.
+- External runtime dependencies (`yt-dlp`, `ffmpeg`) must be documented with OS-specific install guidance.
 - Avoid OS-specific code paths unless explicitly gated and documented.

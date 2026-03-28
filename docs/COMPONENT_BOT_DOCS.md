@@ -26,8 +26,7 @@ The bot is configured via environment variables (see `.env.example`). If a varia
 - `EMBEDDING_URL`: (Default: `LLAMA_URL`) Base URL for the embedding API.
 - `SYSTEM_PROMPT`: (Default: Detailed agent prompt) The core instruction for the assistant.
 - `YOUTUBE_COOKIES`: (Optional) Path to cookies file for `yt-dlp`.
-- `MCP_TOOLS_REQUIRE_CONFIRMATION`: (Default: `true`) Require user confirmation before executing MCP tools via the agent.
-- `AGENT_CONFIRM_TIMEOUT_SECS`: (Default: `300`) How long the bot waits for a user to confirm a tool execution.
+- `AGENT_CONFIRM_TIMEOUT_SECS`: (Default: `300`) How long the bot waits for a user to confirm a tool execution (when a tool sets `requires_confirmation`).
 - `EMBEDDING_INDEXER_ENABLED`: (Default: `true`) Enable background embedding backfill/indexing.
 - `EMBEDDING_INDEXER_BATCH_SIZE`: (Default: `25`) Messages embedded per indexer tick.
 - `EMBEDDING_INDEXER_INTERVAL_SECS`: (Default: `30`) Indexer tick interval.
@@ -62,8 +61,7 @@ Uses Poise's shared `Data` struct (thread-safe, wrapped in `Arc` by the framewor
 - `LlmClient`: Connection to LLM provider.
 - `Database`: SQLite message and embedding storage.
 - `MessageCache`: In-memory LRU cache of recent messages.
-- `ToolRegistry`: Registry of callable tools.
-- `McpClientManager`: Manager for MCP server connections.
+- `ToolRegistry`: Registry of callable built-in tools for the agent.
 
 ## Error Handling
 

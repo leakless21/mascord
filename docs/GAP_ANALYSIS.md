@@ -3,6 +3,8 @@
 This document tracks identified gaps, edge cases, and potential issues requiring remediation.
 Last reviewed: February 4, 2026 (auto memory updates, no-memory mode, and deletion completeness reviewed).
 
+**Note (March 2026):** The Model Context Protocol (MCP) client stack was removed from the codebase. Gap items that only referred to MCP (`GAP-009`, `GAP-012`, and similar) are **obsolete** but left below for history.
+
 ## Legend
 
 - 🔴 **Critical**: Can cause data loss, security issues, or system failure
@@ -15,24 +17,24 @@ Last reviewed: February 4, 2026 (auto memory updates, no-memory mode, and deleti
 
 ### GAP-001: Temporary File Accumulation 🔴
 
-**Status**: Open
-**Description**: Songbird's `YoutubeDl` source uses `yt-dlp` which may cache video/audio files. No cleanup mechanism exists.
-**Impact**: Disk space exhaustion over time in production.
-**Resolution**: Implement cleanup task with configurable temp directory and TTL.
+**Status**: Resolved ✅
+**Description**: Periodic cleanup of `YOUTUBE_DOWNLOAD_DIR` based on `YOUTUBE_CLEANUP_AFTER_SECS`.
+**Impact**: (Historical) Unbounded cache growth.
+**Resolution**: `src/voice/cleanup.rs` + startup task in `main.rs`.
 
 ### GAP-002: Cookie Support Not Wired 🟡
 
-**Status**: Open (TODO in `music.rs:62-65`)
-**Description**: `YOUTUBE_COOKIES` config exists but isn't passed to `yt-dlp`.
-**Impact**: Age-restricted and bot-flagged videos fail to play.
-**Resolution**: Pass `--cookies` argument to yt-dlp via Songbird's customization options or wrapper script.
+**Status**: Resolved ✅
+**Description**: `YOUTUBE_COOKIES` is passed through to `yt-dlp` via Songbird (`user_args` with `--cookies`) when the file exists.
+**Impact**: (Historical) Age-restricted videos failed without cookies.
+**Resolution**: Implemented in `src/commands/music.rs` (preflight + cookie path wiring).
 
 ### GAP-003: No Download Directory Configuration 🟡
 
-**Status**: Open
-**Description**: yt-dlp downloads to default/uncontrolled location.
-**Impact**: Unpredictable disk usage, cleanup difficulty.
-**Resolution**: Add `YOUTUBE_DOWNLOAD_DIR` config with default `/tmp/mascord_audio/`.
+**Status**: Resolved ✅
+**Description**: `YOUTUBE_DOWNLOAD_DIR` configures the cache path used by cleanup.
+**Impact**: (Historical) Uncontrolled download location.
+**Resolution**: `src/config.rs` + `.env.example`; wired in `main.rs` / voice cleanup.
 
 ### GAP-004: Playlist URL Handling Undefined 🟢
 
@@ -97,10 +99,10 @@ Last reviewed: February 4, 2026 (auto memory updates, no-memory mode, and deleti
 
 ### GAP-009: No MCP Tool Execution Timeout 🔴
 
-**Status**: Resolved ✅
-**Description**: MCP tool calls needed timeout protection.
-**Impact**: Slow MCP server could block agent loop.
-**Resolution**: Implemented `tokio::time::timeout()` guards around `service.call_tool()` in `src/mcp/client.rs`.
+**Status**: Obsolete (MCP removed)
+**Description**: (Historical) MCP tool calls needed timeout protection.
+**Impact**: N/A — no MCP client in tree.
+**Resolution**: N/A.
 
 ### GAP-010: No Embedding Request Timeout 🟡
 
@@ -122,10 +124,10 @@ Last reviewed: February 4, 2026 (auto memory updates, no-memory mode, and deleti
 
 ### GAP-012: MCP Server Crash Recovery 🟡
 
-**Status**: Open
-**Description**: If MCP subprocess crashes, no automatic reconnection or cleanup.
-**Impact**: External tools become unavailable until bot restart.
-**Resolution**: Add health check and automatic reconnection with backoff.
+**Status**: Obsolete (MCP removed)
+**Description**: (Historical) MCP subprocess lifecycle.
+**Impact**: N/A.
+**Resolution**: N/A.
 
 ### GAP-020: Command Errors Not Surfaced 🟡
 
@@ -301,7 +303,7 @@ Last reviewed: February 4, 2026 (auto memory updates, no-memory mode, and deleti
 - [x] **GAP-003**: Download Directory Config (Phase 2)
 - [x] **GAP-005**: Auto-Leave on Idle (Phase 3)
 - [x] **GAP-008**: LLM Request Timeout (Phase 1)
-- [x] **GAP-009**: MCP Tool Execution Timeout (Phase 1)
+- [~] **GAP-009**: Obsolete — MCP client removed from codebase
 - [x] **GAP-010**: Embedding Request Timeout (Phase 1)
 - [x] **GAP-011**: Agent Loop Failure Logging (Phase 4)
 - [x] **GAP-013**: SQL Injection in Search Query (Phase 1)
@@ -325,6 +327,6 @@ Last reviewed: February 4, 2026 (auto memory updates, no-memory mode, and deleti
 | `config.rs` | ✅ Defaults, missing vars | Custom Debug redaction |
 | `context.rs` | ✅ Context retrieval, limits | Retention time filtering |
 | `db/mod.rs` | ✅ Init, save, settings | Search, summaries |
-| `mcp/` | ❌ None | Connection, tool execution |
+| `tools/` | Partial | Built-in tool execution; expand integration tests |
 | `llm/` | ❌ None | Timeout handling, errors |
 | `voice/` | ❌ None | Join/leave, queue |

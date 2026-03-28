@@ -70,7 +70,7 @@ sudo port install rust ffmpeg yt-dlp nodejs cmake libopus
 #### Platform Notes
 
 - **macOS**: Fully supported on Apple Silicon (ARM64) and Intel. All dependencies available via Homebrew.
-- **Linux**: Supported on most distributions. See SETUP_MACOS.md for macOS-specific notes.
+- **Linux**: Supported on most distributions. See [docs/INSTALLATION.md](docs/INSTALLATION.md) for install paths.
 
 ### 2. Configuration (`.env`)
 
@@ -249,7 +249,7 @@ cargo run               # Debug mode
 ./target/release/mascord
 ```
 
-📖 **For detailed information**, see [SETUP_COMPLETE.md](SETUP_COMPLETE.md) and [DATABASE_FIX.md](DATABASE_FIX.md)
+📖 **Operations and deployment**: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) · [docs/DOCUMENTATION_INDEX.md](docs/DOCUMENTATION_INDEX.md)
 
 ### 6. Native Web Tools
 
@@ -260,11 +260,11 @@ Mascord now ships with native tools for live web research:
 - `fetch_url` with `render_javascript=true`: Uses Jina AI Reader for JS-heavy pages (no API key)
 - `fetch_url` with `render_mode=auto`: Uses local fetch first, then auto-falls back to Jina Reader when content quality is poor
 
-No MCP server setup is required.
+These run in-process; no separate MCP server is involved.
 
 ---
 
-## � Monitoring Your Bot
+## Monitoring Your Bot
 
 ### Check if Bot is Running
 
@@ -365,11 +365,11 @@ For deeper insights into the project, explore the `docs/` directory:
 - [Multi-server & benchmark spec](docs/MULTI_SERVER_PRODUCT_SPEC.md): Product parity vs popular bots, Discord UX standards, phased roadmap.
 - [Component Docs](docs/COMPONENT_BOT_DOCS.md): Deep dives into specific modules (Bot, LLM, RAG, Voice, Tools).
 
-### Setup & Troubleshooting
+### Setup & troubleshooting
 
-- [SETUP_COMPLETE.md](SETUP_COMPLETE.md): Post-setup verification and next steps
-- [DATABASE_FIX.md](DATABASE_FIX.md): Database initialization and troubleshooting
-- [QUICK_REFERENCE.md](QUICK_REFERENCE.md): Command cheat sheet
+- [Installation](docs/INSTALLATION.md): Build, first-time command registration, run
+- [Gap analysis](docs/GAP_ANALYSIS.md): Known limitations and resolved issues
+- [Commands](docs/COMMANDS.md): Slash commands and settings
 
 ---
 

@@ -1,60 +1,29 @@
-# Component: Tools & MCP System
+# Component: Tools & agent
 
-## Domain: Tooling
-The tooling domain handles the registration, discovery, and execution of callable functions (Tools) by the LLM. It supports both built-in static tools and dynamic external tools via MCP.
+## Domain
 
-### Key Classes
+The tooling layer registers **built-in** callable functions for the LLM agent (`/chat`, reply-to-bot, and mentions use the same agent loop).
 
-| Class | Location | Responsibility |
-|-------|----------|----------------|
-| `Tool` | `src/tools/mod.rs` | Trait defining the interface for all callable tools. |
-| `ToolRegistry` | `src/tools/mod.rs` | Collection and management of available tools. |
-| `Agent` | `src/llm/agent.rs` | Core execution loop handling multi-turn tool calling. |
-| `McpClientManager` | `src/mcp/client.rs` | Manages connections to external MCP servers. |
-| `McpToolWrapper` | `src/mcp/client.rs` | Dynamic tool wrapper for MCP-provided functions. |
+### Key types
 
-## Tool Calling Flow
+| Type | Location | Role |
+|------|----------|------|
+| `Tool` | `src/tools/mod.rs` | Trait for callable tools (name, schema, `execute`, optional `requires_confirmation`). |
+| `ToolRegistry` | `src/tools/mod.rs` | Holds all registered tools; the agent lists them for the model. |
+| `Agent` | `src/llm/agent.rs` | Multi-turn loop: model tool calls → execute → feed results back until a final reply. |
 
-1. The `Agent` (invoked via `/chat`) gathers all tools from `ToolRegistry` and `McpClientManager`.
-2. Tool definitions (OpenAI format) are sent to the `LlmClient`.
-3. The LLM returns a sequence of tool calls.
-4. The `Agent` executes the tools and feeds results back to the LLM.
-5. This repeats until a final answer is generated or limits are reached.
+## Flow
 
-## Built-in Tools
+1. The agent collects tool definitions from `ToolRegistry`.
+2. Definitions are sent to `LlmClient` in OpenAI-style tool format.
+3. The model may return tool calls; each is executed and results are appended to the conversation.
+4. Tools may request **interactive confirmation** in Discord (`src/llm/confirm.rs`) when `requires_confirmation()` is true (for example the admin shutdown tool).
 
-- `play_music`: Triggers YouTube playback via Songbird/yt-dlp.
-- `search_local_history`: Performs RAG search over indexed Discord messages and returns a summary plus source provenance.
-- `get_user_memory`: Fetches a user's full global memory profile when detailed personalization is needed.
-- `shutdown`: Admin tool for graceful bot termination.
+## Built-in tools (representative)
 
-## MCP Integration
-Configured via `mcp_servers.toml` (auto-created) or the `MCP_SERVERS` environment variable. 
+Implementations live under `src/tools/builtin/`. Examples include local history search, user memory fetch, web search/fetch, music control, and admin actions—see code for the authoritative list and schemas.
 
-Supported servers include:
-- `brave-search`: Web search capabilities.
-- `fetch`: Web content retrieval and markdown conversion.
+## Platform notes
 
-### Runtime Management
-
-The bot owner can manage MCP servers directly from Discord:
-- `/mcp list`: Show all configured and active servers.
-- `/mcp add`: Add a new stdio-based server (persists to TOML).
-- `/mcp remove`: Remove a server and disconnect its tools.
-
-Supports `stdio` transport for running local scripts/binaries as tool providers.
-
-### Transport Notes
-
-- **Supported**: `stdio` (local child-process servers).
-- **Not yet supported**: `sse` (remote servers via HTTP/SSE).
-- Back-compat: configs that specify `transport = "http"`/`"https"` without a `url` are treated as `stdio` for common MCP examples.
-
-### Startup & Availability
-
-- MCP connections are established in the background during startup and a warmup log line reports active server count and discovered tool count.
-- The agent logs the number of built-in vs MCP tools available each iteration at `debug` level.
-
-## Platform Notes
-- MCP tools may require external runtimes (for example, Node.js when using `npx`-based servers).
-- Ensure tool binaries are available on the host OS `PATH` for macOS and Linux deployments.
+- Tools that shell out or call the network depend on host connectivity and configured URLs (`SEARXNG_URL`, etc.).
+- Voice-related tools require `yt-dlp` / `ffmpeg` on `PATH` like the rest of the voice stack.

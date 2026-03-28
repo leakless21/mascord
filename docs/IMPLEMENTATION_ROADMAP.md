@@ -55,8 +55,8 @@ Current `Agent::execute_tool_call` has no access to Discord UI primitives.
 1. **Discord Integration:** Poise/Serenity framework is production-grade, well-tested.
 2. **Voice Infrastructure:** Songbird handles voice channel lifecycle properly.
 3. **Database Foundation:** SQLite schema is designed for multi-tier memory.
-4. **Timeout Protection:** LLM & MCP calls have `tokio::time::timeout` guards.
-5. **MCP Integration:** Framework for connecting external tools is in place.
+4. **Timeout Protection:** LLM & embedding calls have `tokio::time::timeout` guards.
+5. **Agent tools:** Built-in `ToolRegistry` powers `/chat` and related flows (no MCP runtime).
 6. **Modular Architecture:** Clean separation of concerns across modules.
 
 ### What's Missing or Broken ❌ (Resolved)
@@ -213,7 +213,7 @@ LLM decides to call any tool. Bot executes immediately. Risk if tool has side ef
 #### Recommended Approach: Multi-Tier Safety
 1. **Tier 1 (Safe Tools):** `Search`, `PlayMusic` → Execute immediately
 2. **Tier 2 (Confirm):** `Shutdown`, `PurgeMessages` → Send Discord button, wait for approval
-3. **Tier 3 (MCP):** External MCP tools → Depends on tool schema
+3. **Tier 3 (Future):** Any new external tool integrations → same confirmation/schema rules as built-ins
 
 **Implementation:** Add `requires_confirmation: bool` field to `Tool` trait.
 
