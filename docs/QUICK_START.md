@@ -170,8 +170,10 @@ EMBEDDING_INDEXER_ENABLED=true
 EMBEDDING_INDEXER_INTERVAL_SECS=300  # 5 minutes
 EMBEDDING_INDEXER_BATCH_SIZE=25
 
-# MCP server timeout (prevents hanging on unresponsive servers)
-MCP_TIMEOUT_SECS=60
+# Native web tools (SearXNG + fetch)
+SEARXNG_URL=http://localhost:8086
+WEB_TOOL_TIMEOUT_SECS=20
+JINA_READER_BASE=https://r.jina.ai   # Optional override; no API key required
 ```
 
 ---
@@ -222,7 +224,7 @@ mkdir -p data/
 2. **Read [README.md](../README.md)** - Understand features
 3. **Explore [docs/](.)** - Deep dive into components
 4. **Configure advanced settings** - See `.env` comments
-5. **Set up MCP servers** - Extend with external tools
+5. **Tune native web tools** - Extend with SearXNG/search behavior
 
 ---
 

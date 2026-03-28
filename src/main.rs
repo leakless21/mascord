@@ -1,5 +1,5 @@
 use anyhow::Context as AnyhowContext;
-use mascord::commands::{admin, chat, mcp, memory, music, rag, reminder, settings};
+use mascord::commands::{admin, chat, memory, music, rag, reminder, settings};
 use mascord::{config::Config, Data};
 use poise::serenity_prelude as serenity;
 use serenity::all::Http;
@@ -21,7 +21,6 @@ async fn main() -> anyhow::Result<()> {
              reqwest=info,\
              async_openai=info,\
              rusqlite=info,\
-             rmcp=info,\
              h2=warn,\
              hyper=warn,\
              hyper_util=warn,\
@@ -104,7 +103,6 @@ async fn main() -> anyhow::Result<()> {
                 reminder::reminder(),
                 admin::shutdown(),
                 admin::restart(),
-                mcp::mcp(),
                 settings::settings(), // /settings context
             ],
             event_handler: |ctx, event, _framework, data| {
@@ -239,6 +237,7 @@ async fn main() -> anyhow::Result<()> {
 
                 // Initialize cache with capacity of 1000 messages
                 let cache = mascord::cache::MessageCache::new(1000);
+                let http_client = reqwest::Client::new();
 
                 // Initialize Tools
                 let mut registry = mascord::tools::ToolRegistry::new();
@@ -250,71 +249,19 @@ async fn main() -> anyhow::Result<()> {
                 registry.register(std::sync::Arc::new(
                     mascord::tools::builtin::user_memory::GetUserMemoryTool { db: db.clone() },
                 ));
+                registry.register(std::sync::Arc::new(mascord::tools::builtin::web::WebSearchTool {
+                    http_client: http_client.clone(),
+                    searxng_url: config.searxng_url.clone(),
+                    timeout_secs: config.web_tool_timeout_secs,
+                    default_limit: config.web_search_default_limit,
+                }));
+                registry.register(std::sync::Arc::new(mascord::tools::builtin::web::FetchUrlTool {
+                    http_client: http_client.clone(),
+                    timeout_secs: config.web_tool_timeout_secs,
+                    max_chars: config.web_fetch_max_chars,
+                    jina_reader_base: config.jina_reader_base.clone(),
+                }));
                 let tools = std::sync::Arc::new(registry);
-
-                // Initialize MCP
-                let mcp_manager = std::sync::Arc::new(
-                    mascord::mcp::client::McpClientManager::new(&config)
-                        .context("Failed to initialize MCP manager")?
-                );
-
-                // Connect to MCP servers (best-effort) and warm up tool discovery.
-                let mcp_timeout = tokio::time::Duration::from_secs(config.mcp_timeout_secs);
-                let mut mcp_connect_handles = Vec::new();
-                for mcp_config in config.mcp_servers.clone() {
-                    let manager = mcp_manager.clone();
-                    mcp_connect_handles.push(tokio::spawn(async move {
-                        let name = mcp_config.name.clone();
-                        let result = tokio::time::timeout(mcp_timeout, manager.connect(&mcp_config)).await;
-                        (name, result)
-                    }));
-                }
-
-                if !mcp_connect_handles.is_empty() {
-                    let warmup_manager = mcp_manager.clone();
-                    tokio::spawn(async move {
-                        for handle in mcp_connect_handles {
-                            match handle.await {
-                                Ok((name, Ok(Ok(())))) => {
-                                    tracing::info!("MCP server '{}' connected", name);
-                                }
-                                Ok((name, Ok(Err(e)))) => {
-                                    tracing::error!(
-                                        "Failed to connect to MCP server '{}': {}",
-                                        name,
-                                        e
-                                    );
-                                }
-                                Ok((name, Err(_))) => {
-                                    tracing::error!(
-                                        "Timed out connecting to MCP server '{}' after {:?}",
-                                        name,
-                                        mcp_timeout
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::error!("MCP connect task join error: {}", e);
-                                }
-                            }
-                        }
-
-                        let active = warmup_manager.list_active_servers().await;
-                        let tools = warmup_manager.list_all_tools().await;
-                        tracing::info!(
-                            "MCP warmup: {} active servers, {} tools available",
-                            active.len(),
-                            tools.len()
-                        );
-                        if !tools.is_empty() {
-                            let names = tools
-                                .iter()
-                                .map(|t| t.name().to_string())
-                                .collect::<Vec<_>>()
-                                .join(", ");
-                            tracing::debug!("MCP tools: {}", names);
-                        }
-                    });
-                }
 
                 if config.summarization_enabled {
                     // Start background summarization task (tick interval configurable; triggers decide per-channel work)
@@ -494,12 +441,11 @@ async fn main() -> anyhow::Result<()> {
 
                 Ok(Data {
                     config,
-                    http_client: reqwest::Client::new(),
+                    http_client,
                     llm_client,
                     db,
                     cache,
                     tools,
-                    mcp_manager,
                     bot_id,
                 })
             })

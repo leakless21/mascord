@@ -228,12 +228,14 @@ Last reviewed: February 4, 2026 (auto memory updates, no-memory mode, and deleti
 **Impact**: Database can grow over time in long-lived deployments.
 **Resolution**: Add retention policy (e.g., auto-delete delivered reminders older than N days).
 
-### GAP-024: Absolute Date/Timezone Input Not Supported 🟢
+### GAP-024: User Timezone Profiles Not Supported 🟢
 
-**Status**: Open (Documented Limitation)
-**Description**: Reminders only accept relative durations; no explicit date/time with timezone.
-**Impact**: Users must convert absolute times into durations manually.
-**Resolution**: Add timezone profiles per user and accept absolute date/time input.
+**Status**: Open (Partially Resolved)
+**Description**: Reminders now accept relative durations, clock-time inputs, and absolute UTC datetime input, but there is no per-user timezone profile.
+**Impact**: Users in non-UTC timezones must convert local time to UTC for clock-style and absolute datetime reminders.
+**Resolution**: Add per-user timezone settings and timezone-aware parsing/display.
+
+### GAP-021: macOS Support Not Documented or Validated 🟡
 
 **Status**: Open
 **Description**: macOS is not listed as a supported platform, and there is no CI or documented validation of macOS builds/runtime behavior.

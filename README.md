@@ -1,6 +1,6 @@
 # Mascord: The Agentic Discord Assistant
 
-**Mascord** is a high-performance, modular Discord bot written in Rust. It combines any **OpenAI-compatible LLM** (like `llama.cpp`, LocalAI, vLLM, or OpenAI itself), Retrieval-Augmented Generation (RAG), and a native music player with an advanced **Agentic** core powered by the Model Context Protocol (MCP).
+**Mascord** is a high-performance, modular Discord bot written in Rust. It combines any **OpenAI-compatible LLM** (like `llama.cpp`, LocalAI, vLLM, or OpenAI itself), Retrieval-Augmented Generation (RAG), and a native music player with an advanced **Agentic** core powered by built-in native tools.
 
 ---
 
@@ -13,7 +13,7 @@
 - 🎵 **Interactive Music Player**: High-quality streaming with a rich UI:
   - **Interactive Queue**: Paginated queue display with control buttons (Pause, Skip, Stop).
   - **Deep Integration**: Uses `yt-dlp` and `songbird` with cookie support for detection bypass and age-restricted content.
-- 🤖 **Agentic Core**: An autonomous agent trained to use internal and external tools (via MCP) to solve complex, multi-step requests.
+- 🤖 **Agentic Core**: An autonomous agent trained to use internal and external tools (including native web search and URL fetch) to solve complex, multi-step requests.
 - ⚙️ **Configurable Settings**: Per-guild configuration for context limits, retention policies, and manual working-memory refreshes.
 - ⏰ **Reminder Scheduler**: Durable natural-language reminders (`in 2 days`, `3 hours`, `at 22:15`) with list/cancel support and background delivery.
 
@@ -29,7 +29,6 @@ Mascord requires the following external tools for full functionality:
 - **FFmpeg**: Required for audio processing
 - **CMake**: Required for building native libraries
 - **LLM Provider**: Any OpenAI-compatible API (e.g., `llama.cpp` server, LocalAI, vLLM, or OpenAI)
-- **Node.js** (optional): Required only if using MCP servers via `npx`
 
 #### macOS Installation (Recommended)
 
@@ -72,7 +71,6 @@ sudo port install rust ffmpeg yt-dlp nodejs cmake libopus
 
 - **macOS**: Fully supported on Apple Silicon (ARM64) and Intel. All dependencies available via Homebrew.
 - **Linux**: Supported on most distributions. See SETUP_MACOS.md for macOS-specific notes.
-- **MCP servers**: If you use `npx`-based MCP servers, ensure Node.js is installed.
 
 ### 2. Configuration (`.env`)
 
@@ -149,12 +147,15 @@ LONG_TERM_RETENTION_DAYS=365                   # Set 0 to disable cleanup
 
 # --- Agent tool confirmation ---
 AGENT_CONFIRM_TIMEOUT_SECS=300                 # Confirmation timeout (seconds)
-MCP_TOOLS_REQUIRE_CONFIRMATION=true            # Require confirmation for MCP tools
 
 # --- Timeouts ---
 LLM_TIMEOUT_SECS=120
 EMBEDDING_TIMEOUT_SECS=30
-MCP_TIMEOUT_SECS=60
+SEARXNG_URL=http://localhost:8086              # Native web search backend
+WEB_TOOL_TIMEOUT_SECS=20                       # Timeout for web_search/fetch_url
+WEB_SEARCH_DEFAULT_LIMIT=5                     # Default number of search results
+WEB_FETCH_MAX_CHARS=8000                       # Max chars returned by fetch_url
+JINA_READER_BASE=https://r.jina.ai             # Optional override for Jina Reader base URL
 
 # --- Voice / YouTube ---
 YOUTUBE_COOKIES=/path/to/cookies.txt           # Optional: cookies file for age-restricted content
@@ -250,32 +251,16 @@ cargo run               # Debug mode
 
 📖 **For detailed information**, see [SETUP_COMPLETE.md](SETUP_COMPLETE.md) and [DATABASE_FIX.md](DATABASE_FIX.md)
 
-### 6. MCP Servers Configuration
+### 6. Native Web Tools
 
-**MCP (Model Context Protocol)** servers extend the bot's capabilities with external tools and data sources.
+Mascord now ships with native tools for live web research:
 
-#### Setup:
-1. Copy the example configuration:
-   ```bash
-   cp mcp_servers.toml.example mcp_servers.toml
-   ```
+- `web_search`: Queries your configured SearXNG instance (`SEARXNG_URL`)
+- `fetch_url`: Fetches and extracts readable text from HTTP/HTTPS pages (readability-optimized)
+- `fetch_url` with `render_javascript=true`: Uses Jina AI Reader for JS-heavy pages (no API key)
+- `fetch_url` with `render_mode=auto`: Uses local fetch first, then auto-falls back to Jina Reader when content quality is poor
 
-2. Edit `mcp_servers.toml` and add your actual API keys:
-   ```toml
-   [[servers]]
-   name = "brave-search"
-   transport = "http"
-   command = "npx"
-   args = ["-y", "@modelcontextprotocol/server-brave-search"]
-   env = { BRAVE_API_KEY = "your_actual_api_key_here" }
-   ```
-
-> [!IMPORTANT]
-> **Security**: The `mcp_servers.toml` file is gitignored and will never be committed. You can safely put your API keys directly in this file. The `mcp_servers.toml.example` template is committed to the repo for reference.
-
-#### Available MCP Servers:
-- **brave-search**: Web search powered by Brave Search API
-- **fetch**: HTTP client for fetching web content
+No MCP server setup is required.
 
 ---
 
@@ -347,7 +332,7 @@ Use `/agent` for requests that require multiple actions.
 |---------|-------------|
 | `/chat` | Chat with the bot using current context memory. |
 | `/search` | Manually search through the RAG database. |
-| `/remind` | Set, list, cancel reminders, and view in-Discord usage with `/remind help`. |
+| `/reminder` | Set reminders directly (`when` + `message`) or manage via `action` (`list`, `cancel`, `help`). |
 | `/agent` | Task the bot to perform a complex, multi-step action. |
 | `/play` | Stream audio from a YouTube URL. |
 | `/queue` | View the interactive, paginated music player. |
@@ -383,7 +368,7 @@ For deeper insights into the project, explore the `docs/` directory:
 
 ## 🤝 Contribution
 
-Mascord follows a modular architecture. Feel free to contribute by adding new tools to `src/tools/` or extending the Agentic capabilities via new MCP server integrations.
+Mascord follows a modular architecture. Feel free to contribute by adding new tools to `src/tools/` or extending the Agentic capabilities with additional native integrations.
 
 ---
 

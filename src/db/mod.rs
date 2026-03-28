@@ -1242,16 +1242,18 @@ mod tests {
             youtube_cookies: None,
             youtube_download_dir: "/tmp".to_string(),
             youtube_cleanup_after_secs: 3600,
-            mcp_servers: Vec::new(),
+            searxng_url: "http://localhost:8086".to_string(),
+            web_tool_timeout_secs: 20,
+            web_search_default_limit: 5,
+            web_fetch_max_chars: 8000,
+            jina_reader_base: "https://r.jina.ai".to_string(),
             context_message_limit: 50,
             context_retention_hours: 24,
             llm_timeout_secs: 120,
             embedding_timeout_secs: 30,
-            mcp_timeout_secs: 60,
             voice_idle_timeout_secs: 300,
             dev_guild_id: None,
             register_commands: false,
-            mcp_tools_require_confirmation: true,
             agent_confirm_timeout_secs: 300,
             embedding_indexer_enabled: true,
             embedding_indexer_batch_size: 25,
@@ -1671,10 +1673,10 @@ mod tests {
 
         db.replace_channel_milestones(
             "c1",
-            &vec!["milestone 1".to_string(), "milestone 2".to_string()],
+            &["milestone 1".to_string(), "milestone 2".to_string()],
         )
         .unwrap();
-        db.replace_channel_milestones("c2", &vec!["milestone 3".to_string()])
+        db.replace_channel_milestones("c2", &["milestone 3".to_string()])
             .unwrap();
 
         let summaries_deleted = db.delete_channel_summaries(&channels).unwrap();

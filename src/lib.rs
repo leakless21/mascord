@@ -6,7 +6,6 @@ pub mod db;
 pub mod discord_text;
 pub mod indexer;
 pub mod llm;
-pub mod mcp;
 pub mod mention;
 pub mod rag;
 pub mod reminders;
@@ -25,7 +24,6 @@ pub struct Data {
     pub db: db::Database,
     pub cache: cache::MessageCache,
     pub tools: std::sync::Arc<tools::ToolRegistry>,
-    pub mcp_manager: std::sync::Arc<mcp::client::McpClientManager>,
     /// Bot's own user ID for context formatting
     pub bot_id: u64,
 }

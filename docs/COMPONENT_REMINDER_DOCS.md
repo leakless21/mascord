@@ -6,7 +6,7 @@ Persisting and dispatching user-created reminders on a schedule.
 
 ## Key Classes / Modules
 
-- `src/commands/reminder.rs`: Slash commands to set/list/cancel reminders.
+- `src/commands/reminder.rs`: Single `/reminder` slash command for create + management actions (`list`, `cancel`, `help`).
 - `src/services/reminder.rs`: Business logic for reminder persistence.
 - `src/reminders.rs`: Background dispatcher that sends due reminders to Discord.
 - `src/db/mod.rs`: SQLite persistence for reminders.
@@ -33,8 +33,8 @@ Environment variables (see `.env.example`):
 
 ## Flow
 
-1. User runs `/reminder set` with a duration and message.
-2. `ReminderService` validates inputs and writes a new reminder row to SQLite.
+1. User runs `/reminder` with a natural-language `when` and `message`.
+2. `ReminderService` parses/validates schedule input (relative, clock time, or absolute UTC datetime) and writes a new reminder row to SQLite.
 3. `ReminderDispatcher` polls for due reminders on an interval.
 4. Dispatcher sends a message in the originating channel and marks the reminder delivered.
 

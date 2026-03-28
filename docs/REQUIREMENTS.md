@@ -60,11 +60,11 @@
 
 ### 5. Reminders
 
-- Allow users to set one-time reminders with human-friendly durations (e.g., minutes/hours/days).
+- Allow users to set one-time reminders with natural-language schedules (e.g., `in 2 days, 30 minutes`, `3 hours`, `at 22:15`, `2026-02-10 17:30` in UTC).
 - Persist reminders in SQLite so they survive restarts.
 - Deliver reminders in the originating channel and mention the requesting user.
 - Prevent mass mentions (`@everyone`, roles) from reminder text.
-- Provide commands to list and cancel pending reminders.
+- Provide reminder management actions for list/cancel/help from the `/reminder` command.
 - Throttle reminder dispatching to avoid Discord API rate limits.
 
 ### 6. Natural Language Task Execution (Agent)

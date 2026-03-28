@@ -108,7 +108,7 @@ Mascord is designed as a modular Discord bot focusing on local resource efficien
 ### 14. Reminder Scheduler
 
 - **Responsibility**: Persist and dispatch user-created reminders on schedule.
-- **Interface**: `src/reminders.rs`, `src/services/reminder.rs`, `/reminder` commands.
+- **Interface**: `src/reminders.rs`, `src/services/reminder.rs`, `/reminder` command (`when`+`message` create, `action` for list/cancel/help).
 - **Storage**: SQLite `reminders` table (pending + delivered timestamps).
 - **Dependencies**: `src/db/mod.rs`, Discord HTTP API.
 

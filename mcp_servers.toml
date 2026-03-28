@@ -5,32 +5,18 @@
 # 1. Copy this file: cp mcp_servers.toml.example mcp_servers.toml
 # 2. Add your actual API keys to mcp_servers.toml
 # 3. The mcp_servers.toml file is gitignored - it will never be committed
-#
-# NOTE: Some tools (Claude Desktop, VS Code) use JSON config instead of TOML.
-# Example JSON (Claude Desktop format):
-# {
-#   "mcpServers": {
-#     "brave-search": {
-#       "command": "npx",
-#       "args": ["-y", "@modelcontextprotocol/server-brave-search"],
-#       "env": { "BRAVE_API_KEY": "YOUR_API_KEY_HERE" }
-#     },
-#     "fetch": {
-#       "command": "uvx",
-#       "args": ["mcp-server-fetch"]
-#     }
-#   }
-# }
 
 [[servers]]
 name = "brave-search"
-transport = "stdio"
+transport = "http"
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-brave-search"]
-env = { BRAVE_API_KEY = "your_brave_api_key_here" }
+env = { BRAVE_API_KEY = "BSAoKRG7z0lzebn08ygar4lOLeo-Z0a" }
 
 [[servers]]
 name = "fetch"
 transport = "stdio"
 command = "uvx"
 args = ["mcp-server-fetch"]
+
+

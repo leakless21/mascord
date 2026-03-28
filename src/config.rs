@@ -1,8 +1,6 @@
-use crate::mcp::config::McpServerConfig;
 use dotenvy::dotenv;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::env;
-use std::fs;
 
 #[derive(Clone, Deserialize)]
 pub struct Config {
@@ -22,18 +20,20 @@ pub struct Config {
     pub youtube_cookies: Option<String>,
     pub youtube_download_dir: String,
     pub youtube_cleanup_after_secs: u64,
-    pub mcp_servers: Vec<McpServerConfig>,
+    pub searxng_url: String,
+    pub web_tool_timeout_secs: u64,
+    pub web_search_default_limit: usize,
+    pub web_fetch_max_chars: usize,
+    pub jina_reader_base: String,
     // Context persistence settings
     pub context_message_limit: usize,
     pub context_retention_hours: u64,
     // Timeout & Maintenance settings
     pub llm_timeout_secs: u64,
     pub embedding_timeout_secs: u64,
-    pub mcp_timeout_secs: u64,
     pub voice_idle_timeout_secs: u64,
     pub dev_guild_id: Option<u64>,
     pub register_commands: bool,
-    pub mcp_tools_require_confirmation: bool,
 
     // Agent confirmation settings
     pub agent_confirm_timeout_secs: u64,
@@ -64,7 +64,7 @@ pub struct Config {
 }
 
 const DEFAULT_SYSTEM_PROMPT: &str = "You are Mascord, a powerful and helpful Discord assistant. \
-You have access to various tools and Model Context Protocol (MCP) servers to perform actions and fetch live data. \
+You have access to various tools to perform actions and fetch live data. \
 When a user request requires action (like playing music, searching history, or fetching web content), you MUST use the appropriate tool. \
 Be concise, accurate, and proactive in using your available capabilities. Be a little snarky!";
 
@@ -110,7 +110,22 @@ impl Config {
                 .unwrap_or_else(|_| "3600".to_string())
                 .parse()
                 .unwrap_or(3600),
-            mcp_servers: Self::load_mcp_servers()?,
+            searxng_url: env::var("SEARXNG_URL")
+                .unwrap_or_else(|_| "http://localhost:8086".to_string()),
+            web_tool_timeout_secs: env::var("WEB_TOOL_TIMEOUT_SECS")
+                .unwrap_or_else(|_| "20".to_string())
+                .parse()
+                .unwrap_or(20),
+            web_search_default_limit: env::var("WEB_SEARCH_DEFAULT_LIMIT")
+                .unwrap_or_else(|_| "5".to_string())
+                .parse()
+                .unwrap_or(5),
+            web_fetch_max_chars: env::var("WEB_FETCH_MAX_CHARS")
+                .unwrap_or_else(|_| "8000".to_string())
+                .parse()
+                .unwrap_or(8000),
+            jina_reader_base: env::var("JINA_READER_BASE")
+                .unwrap_or_else(|_| "https://r.jina.ai".to_string()),
             context_message_limit: env::var("CONTEXT_MESSAGE_LIMIT")
                 .unwrap_or_else(|_| "50".to_string())
                 .parse()
@@ -127,10 +142,6 @@ impl Config {
                 .unwrap_or_else(|_| "30".to_string())
                 .parse()
                 .unwrap_or(30),
-            mcp_timeout_secs: env::var("MCP_TIMEOUT_SECS")
-                .unwrap_or_else(|_| "60".to_string())
-                .parse()
-                .unwrap_or(60),
             voice_idle_timeout_secs: env::var("VOICE_IDLE_TIMEOUT_SECS")
                 .unwrap_or_else(|_| "300".to_string())
                 .parse()
@@ -140,11 +151,6 @@ impl Config {
                 .unwrap_or_else(|_| "false".to_string())
                 .parse()
                 .unwrap_or(false),
-            mcp_tools_require_confirmation: env::var("MCP_TOOLS_REQUIRE_CONFIRMATION")
-                .unwrap_or_else(|_| "true".to_string())
-                .parse()
-                .unwrap_or(true),
-
             agent_confirm_timeout_secs: env::var("AGENT_CONFIRM_TIMEOUT_SECS")
                 .unwrap_or_else(|_| "300".to_string())
                 .parse()
@@ -222,37 +228,6 @@ impl Config {
         })
     }
 
-    pub fn load_mcp_servers() -> anyhow::Result<Vec<McpServerConfig>> {
-        if let Ok(content) = fs::read_to_string("mcp_servers.toml") {
-            #[derive(Deserialize)]
-            struct McpWrapper {
-                servers: Vec<McpServerConfig>,
-            }
-            if let Ok(wrapper) = toml::from_str::<McpWrapper>(&content) {
-                return Ok(wrapper.servers);
-            }
-        }
-
-        // Fallback to env variable
-        if let Ok(env_servers) = env::var("MCP_SERVERS") {
-            if let Ok(servers) = serde_json::from_str(&env_servers) {
-                return Ok(servers);
-            }
-        }
-
-        Ok(Vec::new())
-    }
-
-    pub fn save_mcp_servers(servers: &[McpServerConfig]) -> anyhow::Result<()> {
-        #[derive(Serialize)]
-        struct McpWrapper<'a> {
-            servers: &'a [McpServerConfig],
-        }
-        let wrapper = McpWrapper { servers };
-        let content = toml::to_string(&wrapper)?;
-        fs::write("mcp_servers.toml", content)?;
-        Ok(())
-    }
 }
 
 impl std::fmt::Debug for Config {
@@ -281,19 +256,18 @@ impl std::fmt::Debug for Config {
                 "youtube_cookies",
                 &self.youtube_cookies.as_ref().map(|_| "[REDACTED]"),
             )
-            .field("mcp_servers", &self.mcp_servers)
+            .field("searxng_url", &self.searxng_url)
+            .field("web_tool_timeout_secs", &self.web_tool_timeout_secs)
+            .field("web_search_default_limit", &self.web_search_default_limit)
+            .field("web_fetch_max_chars", &self.web_fetch_max_chars)
+            .field("jina_reader_base", &self.jina_reader_base)
             .field("context_message_limit", &self.context_message_limit)
             .field("context_retention_hours", &self.context_retention_hours)
             .field("llm_timeout_secs", &self.llm_timeout_secs)
             .field("embedding_timeout_secs", &self.embedding_timeout_secs)
-            .field("mcp_timeout_secs", &self.mcp_timeout_secs)
             .field("voice_idle_timeout_secs", &self.voice_idle_timeout_secs)
             .field("dev_guild_id", &self.dev_guild_id)
             .field("register_commands", &self.register_commands)
-            .field(
-                "mcp_tools_require_confirmation",
-                &self.mcp_tools_require_confirmation,
-            )
             .field(
                 "agent_confirm_timeout_secs",
                 &self.agent_confirm_timeout_secs,

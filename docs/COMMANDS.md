@@ -176,34 +176,42 @@ Delete your stored messages and memory profile (global).
 
 ## Reminder Commands
 
-### `/reminder [set|list|cancel]`
+### `/reminder`
 
 **Description**: Create and manage one-time reminders.
 
-**Subcommands**:
-
-#### `/reminder set [when] [message]`
-Set a reminder using a human-friendly duration.
+Set a reminder directly by providing `when` and `message`.
 
 ```
-/reminder set 10m "Stretch break"
-/reminder set 2h "Check the deployment"
-/reminder set 1d 2h "Follow up with the team"
+/reminder when:in 2 days, 30 minutes message:"Follow up with the team"
+/reminder when:3 hours message:"Check the deployment"
+/reminder when:at 5:30PM message:"Stretch break"
+/reminder when:at 22:15 message:"Wrap up"
+/reminder when:2026-02-10 17:30 message:"Daily standup"
 ```
 
-#### `/reminder list [limit]`
-List upcoming reminders (default 10, max 20).
+Clock-style and absolute datetime inputs are interpreted as UTC.
+
+Use `action` for reminder management:
+
+#### List reminders
 
 ```
-/reminder list
-/reminder list 5
+/reminder action:list
+/reminder action:list limit:5
 ```
 
-#### `/reminder cancel [id]`
-Cancel a pending reminder by ID (from `/reminder list`).
+#### Cancel reminder
 
 ```
-/reminder cancel 42
+/reminder action:cancel reminder_id:42
+```
+
+#### Show help
+Show accepted reminder formats and examples directly in Discord.
+
+```
+/reminder action:help
 ```
 
 **Related Settings**:
