@@ -66,10 +66,11 @@ pub struct Config {
     pub long_term_retention_days: u64,
 }
 
-const DEFAULT_SYSTEM_PROMPT: &str = "You are Mascord, a powerful and helpful Discord assistant. \
-You have access to various tools to perform actions and fetch live data. \
-When a user request requires action (like playing music, searching history, or fetching web content), you MUST use the appropriate tool. \
-Be concise, accurate, and proactive in using your available capabilities. Be a little snarky!";
+/// Default when `SYSTEM_PROMPT` is unset. Keep short: role, tone, when to use tools (OpenAI-style: instructions first, minimal overlap with injected context).
+const DEFAULT_SYSTEM_PROMPT: &str = "You are Mascord, a Discord assistant. \
+Reply clearly and briefly; a little wit is fine. \
+Use tools when the user wants something done (music, search, web, fetch, memory tools). \
+For explanations, opinions, or troubleshooting without needing those actions, answer in text only.";
 
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
@@ -242,7 +243,6 @@ impl Config {
                 .unwrap_or(365),
         })
     }
-
 }
 
 impl std::fmt::Debug for Config {

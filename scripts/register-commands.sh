@@ -23,7 +23,7 @@ Environment:
   REGISTER_COMMANDS is forced to true by this script.
 
 After registration succeeds, stop the process (Ctrl+C) if it keeps running, and keep REGISTER_COMMANDS=false
-for normal operation. See docs/DEPLOYMENT.md for verification and caveats.
+for normal operation. See docs/setup.md for verification and caveats.
 EOF
 }
 

@@ -59,7 +59,7 @@
 ## Documentation Requirements
 
 Keep these files updated after each task:
-- `docs/REQUIREMENTS.md` - Functional and non-functional requirements
-- `docs/ARCHITECTURE.md` - Component design and dependencies
-- `docs/COMPONENT_*.md` - Domain-specific documentation
-- `docs/GAP_ANALYSIS.md` - Bugs and missing features (remove when resolved)
+- `docs/README.md` - Doc index
+- `docs/setup.md` - Install, deploy, troubleshooting
+- `docs/commands.md` - Slash command reference
+- `docs/internals.md` - Architecture, requirements summary, module map, open gaps

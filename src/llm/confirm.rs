@@ -1,3 +1,4 @@
+use crate::Data;
 use anyhow::Context as _;
 use poise::serenity_prelude as serenity;
 use serde_json::Value;
@@ -7,7 +8,18 @@ pub struct ToolConfirmationContext<'a> {
     pub serenity_ctx: &'a serenity::Context,
     pub channel_id: serenity::ChannelId,
     pub user_id: serenity::UserId,
+    pub guild_id: Option<serenity::GuildId>,
+    pub data: &'a Data,
     pub timeout: Duration,
+}
+
+/// Passed to tools when the agent has Discord context (e.g. `/play` via `play_music`).
+pub struct DiscordToolContext<'a> {
+    pub serenity_ctx: &'a serenity::Context,
+    pub guild_id: Option<serenity::GuildId>,
+    pub channel_id: serenity::ChannelId,
+    pub user_id: serenity::UserId,
+    pub data: &'a Data,
 }
 
 impl<'a> ToolConfirmationContext<'a> {
@@ -15,12 +27,16 @@ impl<'a> ToolConfirmationContext<'a> {
         serenity_ctx: &'a serenity::Context,
         channel_id: serenity::ChannelId,
         user_id: serenity::UserId,
+        guild_id: Option<serenity::GuildId>,
+        data: &'a Data,
         timeout: Duration,
     ) -> Self {
         Self {
             serenity_ctx,
             channel_id,
             user_id,
+            guild_id,
+            data,
             timeout,
         }
     }

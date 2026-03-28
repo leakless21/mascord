@@ -22,7 +22,9 @@ impl Tool for ShutdownTool {
         true
     }
     async fn execute(&self, _params: Value) -> anyhow::Result<Value> {
-        // Implementation will trigger shutdown
-        Ok(json!({"status": "error", "message": "Not yet implemented"}))
+        Ok(json!({
+            "status": "error",
+            "message": "shutdown_bot is not wired to the running process. Stop the bot via systemd or SIGTERM."
+        }))
     }
 }

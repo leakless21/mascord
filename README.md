@@ -10,9 +10,10 @@
   - **Short-Term**: Verbatim recent conversation history (last 50 messages).
   - **Working Memory**: Condensing older interactions into persistent summaries via autonomous background jobs or manual triggers.
   - **Long-Term**: On-demand retrieval and LLM-powered summarization of historical messages (RAG).
-- 🎵 **Interactive Music Player**: High-quality streaming with a rich UI:
-  - **Interactive Queue**: Paginated queue display with control buttons (Pause, Skip, Stop).
-  - **Deep Integration**: Uses `yt-dlp` and `songbird` with cookie support for detection bypass and age-restricted content.
+- 🎵 **Interactive Music Player**: `yt-dlp` + Songbird with:
+  - **Queue & controls**: Titles, durations, estimated total length, playlist import (optional), shuffle/clear/move/remove, volume, pause/resume, now playing, **track** and **queue** loop modes.
+  - **Agent tool `play_music`**: Same stack from `/chat` when used in a guild voice channel.
+  - **Cookies**: Optional `YOUTUBE_COOKIES` for age-restricted or bot-check streams.
 - 🤖 **Agentic Core**: An autonomous agent trained to use internal and external tools (including native web search and URL fetch) to solve complex, multi-step requests.
 - ⚙️ **Configurable Settings**: Per-guild configuration for context limits, retention policies, and manual working-memory refreshes.
 - ⏰ **Reminder Scheduler**: Durable natural-language reminders (`in 2 days`, `3 hours`, `at 22:15`) with list/cancel support and background delivery.
@@ -21,237 +22,19 @@
 
 ## 🚀 Setup & Installation
 
-### 1. Prerequisites
+**Setup and operations:** **[docs/setup.md](docs/setup.md)**
 
-Mascord requires the following external tools for full functionality:
-- **Rust Toolchain**: Required to build and run
-- **yt-dlp**: Required for YouTube metadata and audio
-- **FFmpeg**: Required for audio processing
-- **CMake**: Required for building native libraries
-- **LLM Provider**: Any OpenAI-compatible API (e.g., `llama.cpp` server, LocalAI, vLLM, or OpenAI)
+At a glance:
 
-#### macOS Installation (Recommended)
+1. **Dependencies:** Rust, `ffmpeg`, `yt-dlp`, `cmake`, `pkg-config`, plus an OpenAI-compatible LLM API.
+2. **Configure:** `cp .env.example .env` and set `DISCORD_TOKEN`, `APPLICATION_ID`, `LLAMA_URL`, `LLAMA_MODEL`, `DATABASE_URL`. Enable **Message Content Intent** (Developer Portal → Bot → Privileged Gateway Intents). Many more options are documented in [`.env.example`](.env.example) and [docs/setup.md](docs/setup.md).
+3. **Database:** SQLite is initialized on first run (`mkdir -p data` if the parent path does not exist).
+4. **Build / run:** `cargo build --release`, then `./bot.sh` or `cargo run --release`.
+5. **Slash commands:** Do not leave `REGISTER_COMMANDS=true` for every restart — see [docs/setup.md](docs/setup.md).
 
-On macOS, use **Homebrew** to install all dependencies automatically:
+**Doc index:** [docs/README.md](docs/README.md)
 
-```bash
-# Install all dependencies at once
-brew install rustup ffmpeg yt-dlp node cmake opus pkg-config
-
-# Initialize Rust
-rustup default stable
-```
-
-Verify installation:
-```bash
-rustc --version
-cargo --version
-ffmpeg -version | head -1
-yt-dlp --version
-node --version
-```
-
-Or use the provided `Brewfile` for reproducible installs:
-```bash
-brew bundle  # Installs all dependencies from Brewfile
-```
-
-#### Linux Installation
-
-Use your system's package manager:
-```bash
-# Ubuntu/Debian
-sudo apt-get install rustup ffmpeg yt-dlp nodejs cmake libopus-dev pkg-config
-
-# macOS (alternative if Homebrew not available)
-sudo port install rust ffmpeg yt-dlp nodejs cmake libopus
-```
-
-#### Platform Notes
-
-- **macOS**: Fully supported on Apple Silicon (ARM64) and Intel. All dependencies available via Homebrew.
-- **Linux**: Supported on most distributions. See [docs/INSTALLATION.md](docs/INSTALLATION.md) for install paths.
-
-### 2. Configuration (`.env`)
-
-Copy `.env.example` to `.env` and configure your credentials:
-```bash
-cp .env.example .env
-```
-Fill in the following essential variables:
-
-| Variable | Description |
-|----------|-------------|
-| `DISCORD_TOKEN` | Your bot's token from the Discord Developer Portal. |
-| `APPLICATION_ID` | Your bot's application ID. |
-| `LLAMA_URL` | The OpenAI-compatible endpoint (e.g., `http://localhost:8080/v1`). **Must include `/v1`** for most local providers and **no trailing slash**. |
-| `DATABASE_URL` | Path to the SQLite database (e.g., `data/mascord.db`). |
-
-> [!TIP]
-> Many more settings (timeouts, retention policies, YouTube settings, etc.) are available! Check the [`.env.example`](.env.example) file for the full list of configurable options.
-
-#### Discord Message Content Intent
-
-Enable **Message Content Intent** in the Discord Developer Portal:
-**Application → Bot → Privileged Gateway Intents**.  
-This is required for mention/reply handling and message memory, and is mandatory once the bot is in 100+ servers.
-
-#### Environment Variable Reference (Commented)
-Below is a commented reference you can copy into `.env` as needed:
-```bash
-# --- Discord ---
-DISCORD_TOKEN=your_token_here                  # Required: Discord bot token
-APPLICATION_ID=123456789012345678             # Required: Discord application ID
-OWNER_ID=123456789012345678                    # Optional: owner-only admin commands
-
-# --- LLM ---
-LLAMA_URL=http://localhost:8080/v1             # Required: OpenAI-compatible API base (must include /v1)
-LLAMA_MODEL=local-model                        # Chat model name
-LLAMA_API_KEY=optional_key_here                # Optional: API key (if provider requires it)
-
-# --- Embeddings ---
-EMBEDDING_URL=http://localhost:8080/v1         # Defaults to LLAMA_URL if not set
-EMBEDDING_MODEL=local-model                    # Embedding model name
-EMBEDDING_API_KEY=optional_key_here            # Optional: API key for embeddings
-
-# --- Storage ---
-DATABASE_URL=data/mascord.db                   # SQLite DB location
-
-# --- Bot behavior ---
-SYSTEM_PROMPT=...                              # System prompt for the assistant
-STATUS_MESSAGE=Ready to assist!                # Discord status message
-
-# --- Memory (Short-term context) ---
-CONTEXT_MESSAGE_LIMIT=50                       # Max recent messages injected into LLM
-CONTEXT_RETENTION_HOURS=24                     # Retention window; set 0 to disable time filter
-
-# --- Summarization (Working memory) ---
-SUMMARIZATION_ENABLED=true
-SUMMARIZATION_INTERVAL_SECS=3600               # Scheduler tick interval
-SUMMARIZATION_ACTIVE_CHANNELS_LOOKBACK_DAYS=7  # Channels considered "active"
-SUMMARIZATION_INITIAL_MIN_MESSAGES=50          # Minimum activity before first summary
-SUMMARIZATION_TRIGGER_NEW_MESSAGES=150         # Trigger: new messages threshold
-SUMMARIZATION_TRIGGER_AGE_HOURS=6              # Trigger: age threshold
-SUMMARIZATION_TRIGGER_MIN_NEW_MESSAGES=20      # Trigger: min new msgs when age threshold is hit
-SUMMARIZATION_MAX_TOKENS=1200                  # Approx token cap for summary
-SUMMARIZATION_REFRESH_WEEKS=6                  # Periodic refresh cadence
-SUMMARIZATION_REFRESH_DAYS_LOOKBACK=14         # Lookback window for refresh
-
-# --- Embedding indexer (Long-term memory) ---
-EMBEDDING_INDEXER_ENABLED=true                 # Background embedding backfill
-EMBEDDING_INDEXER_BATCH_SIZE=25                # Messages per batch
-EMBEDDING_INDEXER_INTERVAL_SECS=30             # Seconds between batches
-
-# --- Long-term memory retention (RAG store) ---
-LONG_TERM_RETENTION_DAYS=365                   # Set 0 to disable cleanup
-
-# --- Agent tool confirmation ---
-AGENT_CONFIRM_TIMEOUT_SECS=300                 # Confirmation timeout (seconds)
-
-# --- Timeouts ---
-LLM_TIMEOUT_SECS=120
-EMBEDDING_TIMEOUT_SECS=30
-SEARXNG_URL=http://localhost:8086              # Native web search backend
-WEB_TOOL_TIMEOUT_SECS=20                       # Timeout for web_search/fetch_url
-WEB_SEARCH_DEFAULT_LIMIT=5                     # Default number of search results
-WEB_FETCH_MAX_CHARS=8000                       # Max chars returned by fetch_url
-JINA_READER_BASE=https://r.jina.ai             # Optional override for Jina Reader base URL
-
-# --- Voice / YouTube ---
-YOUTUBE_COOKIES=/path/to/cookies.txt           # Optional: cookies file for age-restricted content
-YOUTUBE_DOWNLOAD_DIR=/tmp/mascord_audio        # yt-dlp download cache
-YOUTUBE_CLEANUP_AFTER_SECS=3600                # Cleanup window for cached audio
-VOICE_IDLE_TIMEOUT_SECS=300                    # Auto-leave voice after idle
-
-# --- Command registration ---
-REGISTER_COMMANDS=false                        # Set true only when commands change
-DEV_GUILD_ID=YOUR_DEV_GUILD_ID_HERE            # Optional: faster dev registration
-```
-
-### 3. Database Setup
-
-**Do I need to setup a database first?**
-**No.** Mascord uses SQLite and handles its own database initialization. On the first run, the bot will automatically:
-1. Create the `data` directory (if it doesn't exist).
-2. Create the SQLite database file at the path specified in `DATABASE_URL`.
-3. Initialize all necessary tables and indexes.
-
-The `data/` directory is gitignored and will never be committed.
-
-### 4. Build the Project
-
-Build the bot once to create the optimized binary:
-
-```bash
-cd /path/to/mascord
-cargo build --release    # Optimized binary (recommended)
-cargo build              # Debug binary (faster compilation)
-```
-
-The release binary is located at: `target/release/mascord`
-
-### 5. Running the Bot
-
-⚠️ **CRITICAL: Avoid Rate Limits!**
-
-Before starting your bot, ensure command registration is configured correctly to avoid Cloudflare IP bans:
-
-```bash
-# In .env - Set to false by default!
-REGISTER_COMMANDS=false
-DEV_GUILD_ID=your_test_server_id
-```
-
-**Why?** Setting `REGISTER_COMMANDS=true` causes the bot to register commands on **every startup**. Frequent restarts can trigger Discord's Cloudflare protection (**1+ hour IP ban**).
-
-**When to enable command registration:**
-- ✅ First time running the bot
-- ✅ When you've modified command signatures (added/removed commands or parameters)
-- ❌ Normal development restarts
-
-**Best practice workflow:**
-1. Set `REGISTER_COMMANDS=true` and `DEV_GUILD_ID` to your test server
-2. Start bot once to register commands
-3. Set `REGISTER_COMMANDS=false`
-4. Continue development normally
-
-#### Quick Start (Recommended)
-
-**Use the provided `bot.sh` script** for an easy setup-and-run experience:
-
-```bash
-# Run the bot (release mode - optimized and recommended)
-./bot.sh
-
-# Or debug mode (verbose logging)
-./bot.sh debug
-```
-
-The script automatically:
-- Creates the `data/` directory
-- Verifies your `.env` configuration
-- Builds the binary if needed
-- Starts the bot
-
-#### Manual Startup
-
-If you prefer to run without the script:
-
-```bash
-# Ensure data directory exists
-mkdir -p data/
-
-# Run with cargo
-cargo run --release     # Optimized (recommended)
-cargo run               # Debug mode
-
-# Or run the compiled binary directly
-./target/release/mascord
-```
-
-📖 **Operations and deployment**: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) · [docs/DOCUMENTATION_INDEX.md](docs/DOCUMENTATION_INDEX.md)
-
-### 6. Native Web Tools
+### Native web tools
 
 Mascord now ships with native tools for live web research:
 
@@ -266,40 +49,22 @@ These run in-process; no separate MCP server is involved.
 
 ## Monitoring Your Bot
 
-### Check if Bot is Running
+With **systemd**, use **`systemctl`** and **`journalctl`** first (state and logs). Optional **`HEALTH_PORT`** HTTP probes are for extra checks (e.g. Uptime Kuma on localhost). Details: **[docs/setup.md#monitoring-systemd](docs/setup.md#monitoring-systemd)**.
 
 ```bash
-# See running Mascord process
-ps aux | grep mascord
-
-# Check database message count
-sqlite3 data/mascord.db "SELECT COUNT(*) as messages FROM messages;"
-
-# View real-time logs (if running in background)
-tail -f /tmp/mascord.log
+sudo systemctl status mascord
+sudo journalctl -u mascord -f --no-pager
 ```
 
 ### Stop the Bot
 
-```bash
-# Graceful shutdown (saves state)
-pkill -f "target/release/mascord"
-
-# Or in Discord, use (owner-only):
-/admin shutdown
-```
+**systemd:** `sudo systemctl stop mascord`  
+**Manual run:** `pkill -f "target/release/mascord"`  
+**Discord (owner):** `/shutdown`
 
 ### Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| Bot won't start | `mkdir -p data/` and verify `.env` has `DISCORD_TOKEN` and `APPLICATION_ID` |
-| "Failed to open database" | `mkdir -p data/` - SQLite needs parent directory to exist |
-| Database errors | `rm data/mascord.db` (will be recreated on startup) |
-| LLM connection fails | Check `LLAMA_URL` is accessible: `curl $LLAMA_URL/models` |
-| Bot doesn't respond to commands | Verify bot has Discord permissions (Send Messages, Read Messages) |
-| High memory usage | Reduce `CONTEXT_MESSAGE_LIMIT` or increase `LONG_TERM_RETENTION_DAYS` |
-| Commands not appearing | Set `REGISTER_COMMANDS=true`, restart once, then set back to false |
+See **[docs/setup.md#troubleshooting](docs/setup.md#troubleshooting)**. Quick checks: `mkdir -p data/`, valid `.env`, `curl` to your LLM `/models`, Discord permissions and Message Content Intent.
 
 ---
 
@@ -313,17 +78,20 @@ Mascord doesn't just "see" the last message. It manages context in three layers:
 4. **Historical Search**: Use `/search` or tell the bot to "search for X" to trigger the RAG engine over months of historical logs.
 
 ### 🎵 Music Player Tips
-- **Buttons**: The `/queue` command provides interactive buttons. You don't need to memorize commands once playback starts.
-- **Cookies**: If you encounter `403 Forbidden` errors from YouTube, export your browser cookies to a `cookies.txt` and set the `YOUTUBE_COOKIES` path in your `.env`.
+- **Buttons**: `/queue` uses **buttons** (not reactions) for pause/resume, skip, stop, and page through upcoming tracks.
+- **Playlists**: Set `playlist:true` on `/play` with a playlist URL to queue up to 50 entries.
+- **Cookies**: If you encounter `403 Forbidden` or age-gate errors from YouTube, export browser cookies to a `cookies.txt` and set `YOUTUBE_COOKIES` in `.env`.
 
 ### 🤖 Multi-Step Tasks (Agent)
-Use `/agent` for requests that require multiple actions. 
+Use **`/chat`** for requests that require multiple actions (including tools).
 *Example: "Search for the last time we talked about the API design, summarize it, and then play some lofi music."*
-## Future Capabilities (Roadmap)
+
+## Future capabilities (roadmap)
+
 - [ ] **Multimodal Search**: Index image attachments and embeds in RAG using CLIP/SigLIP models.
 - [ ] **Vision Support**: Enable LLM to analyze images and screenshots shared in Discord.
-- [ ] **Enhanced Audio**: Support for Spotify and local audio collections.
-- [ ] **Web Search**: Integrated browsing tool for live information retrieval.
+- [ ] **Enhanced Audio**: Optional Spotify / local library integrations (beyond `yt-dlp` URLs).
+
 ---
 
 ## 📋 Available Commands
@@ -336,42 +104,51 @@ Use `/agent` for requests that require multiple actions.
 | `/memory` | Manage global user memory (`enable`, `disable`, `show`, `remember`, `forget`, `delete_data`). |
 | `/reminder` | Set reminders directly (`when` + `message`) or manage via `action` (`list`, `cancel`, `help`). |
 | `/join` | Join your current voice channel. |
-| `/play` | Stream audio from a YouTube URL. |
-| `/skip` | Skip the current track in queue. |
-| `/leave` | Leave voice channel and cleanup queue state. |
-| `/queue` | View the interactive, paginated music player. |
+| `/play` | Queue audio (search, URL, or playlist with `playlist:true`). |
+| `/skip` | Skip the current track. |
+| `/leave` | Leave voice and end the session. |
+| `/queue` | Queue view with titles, duration, and controls. |
+| `/nowplaying` | Current track details. |
+| `/pause` / `/resume` | Pause or resume. |
+| `/volume` | 0–200% session volume. |
+| `/loop` | Off, repeat current track, or repeat queue snapshot. |
+| `/clear` / `/shuffle` | Clear upcoming or shuffle upcoming. |
+| `/remove` / `/move_track` | Remove or reorder by position. |
 | `/settings` | Manage context/memory/system prompt/timeouts per guild. |
-| `/admin shutdown` | Safely save state and exit (Owner Only). |
-| `/admin restart` | Gracefully restart shards (Owner Only). |
+| `/shutdown` | Exit process (owner only; hidden from help). |
+| `/restart` | Graceful shard shutdown for supervisor restart (owner only). |
 
 ---
 
 ## 📖 Documentation
 
-Start with the most relevant guide for your needs:
-
-- **[Quick Start Guide](docs/QUICK_START.md)** - Get running in 5 minutes (⭐ start here!)
-- **[Installation Guide](docs/INSTALLATION.md)** - Full setup with troubleshooting
-- **[Deployment Guide](docs/DEPLOYMENT.md)** - Production deploy and health checks
-- **[Command Reference](docs/COMMANDS.md)** - All available commands with examples
-- **[Documentation Index](docs/DOCUMENTATION_INDEX.md)** - Complete documentation map
-
-### Technical Documentation
-
-For deeper insights into the project, explore the `docs/` directory:
-
-- [Architecture](docs/ARCHITECTURE.md): System design, component overview, and data flow.
-- [Requirements](docs/REQUIREMENTS.md): Detailed functional and non-functional goals.
-- [Multi-server & benchmark spec](docs/MULTI_SERVER_PRODUCT_SPEC.md): Product parity vs popular bots, Discord UX standards, phased roadmap.
-- [Component Docs](docs/COMPONENT_BOT_DOCS.md): Deep dives into specific modules (Bot, LLM, RAG, Voice, Tools).
-
-### Setup & troubleshooting
-
-- [Installation](docs/INSTALLATION.md): Build, first-time command registration, run
-- [Gap analysis](docs/GAP_ANALYSIS.md): Known limitations and resolved issues
-- [Commands](docs/COMMANDS.md): Slash commands and settings
+- **[docs/README.md](docs/README.md)** — Index
+- **[docs/setup.md](docs/setup.md)** — Install, env, registration, deploy, **monitoring**, troubleshooting
+- **[docs/commands.md](docs/commands.md)** — Slash commands
+- **[docs/internals.md](docs/internals.md)** — Architecture and module map
 
 ---
+
+## ✅ Verify build and host toolchain
+
+```bash
+cargo test                           # unit tests (includes music queue index helpers)
+cargo test --test real_toolchain     # yt-dlp + ffmpeg on PATH
+cargo test --test real_toolchain -- --ignored   # + live metadata (Archive.org; needs network)
+cargo test --test music_no_discord -- --ignored # Songbird input + metadata (no Discord)
+cargo test --test music_decode_pipeline -- --ignored # yt-dlp | ffmpeg full decode (no Discord)
+```
+
+**Queue UX, pause/skip, and embeds** still need a live Discord voice session: Songbird’s `Config::test_cfg` / fake `Driver` output is only built when compiling Songbird itself, not when mascord depends on it. Manually verify on a staging server using the Voice / Music sections in [commands](docs/commands.md) (`/play`, `/queue` with buttons, `/shuffle`, `/move`, etc.).
+
+With a valid `cookies.txt`, you can also prove YouTube extraction:
+
+```bash
+YOUTUBE_COOKIES=/path/to/cookies.txt \
+  cargo test -p mascord --test real_toolchain youtube_metadata_with_cookies -- --ignored --nocapture
+```
+
+YouTube often returns “sign in to confirm you’re not a bot” **without** cookies; that is expected on many networks.
 
 ## 🤝 Contribution
 

@@ -96,7 +96,8 @@ async fn main() -> anyhow::Result<()> {
         let health_port = config.health_port;
         let readiness_for_health = readiness.clone();
         tokio::spawn(async move {
-            if let Err(e) = mascord::health::run_health_server(health_port, readiness_for_health).await
+            if let Err(e) =
+                mascord::health::run_health_server(health_port, readiness_for_health).await
             {
                 error!("Health server failed: {}", e);
             }
@@ -124,6 +125,15 @@ async fn main() -> anyhow::Result<()> {
                 music::skip(),
                 music::leave(),
                 music::queue(),
+                music::pause(),
+                music::resume(),
+                music::volume(),
+                music::now_playing_cmd(),
+                music::loop_cmd(),
+                music::clear(),
+                music::shuffle(),
+                music::remove(),
+                music::move_track(),
                 reminder::reminder(),
                 admin::shutdown(),
                 admin::restart(),
@@ -537,6 +547,7 @@ async fn main() -> anyhow::Result<()> {
                 }
 
                 let bot_id = config.application_id;
+                let music = std::sync::Arc::new(mascord::commands::music::MusicState::new());
                 readiness_for_setup.store(true, Ordering::SeqCst);
 
                 Ok(Data {
@@ -546,6 +557,7 @@ async fn main() -> anyhow::Result<()> {
                     db,
                     cache,
                     tools,
+                    music,
                     bot_id,
                 })
             })

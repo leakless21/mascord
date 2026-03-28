@@ -9,6 +9,11 @@
 #
 # Build the binary first (from mascord/):
 #   CARGO_TARGET_DIR=target cargo build --release
+#
+# Monitoring (see docs/setup.md, section "Monitoring (systemd)"):
+#   systemctl status mascord
+#   journalctl -u mascord -f
+#   Optional: set HEALTH_PORT in .env for /healthz and /readyz HTTP probes.
 
 [Unit]
 Description=Mascord Discord Bot

@@ -1,3 +1,4 @@
+use crate::commands::music::playback::{enqueue_playback, EnqueueOpts};
 use crate::config::DISCORD_EMBED_LIMIT;
 use crate::context::ConversationContext;
 use crate::llm::confirm::ToolConfirmationContext;
@@ -10,6 +11,34 @@ use async_openai::types::{
 };
 use poise::serenity_prelude::{CreateEmbed, CreateEmbedFooter};
 use tracing::{error, info, warn};
+
+fn extract_direct_play_query(message: &str) -> Option<String> {
+    let trimmed = message.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let lower = trimmed.to_lowercase();
+    // Longer prefixes first so e.g. "play me …" does not match the shorter "play …".
+    let prefixes = [
+        "play me ",
+        "play the ",
+        "play ",
+        "queue ",
+        "put on ",
+        "add to queue ",
+    ];
+    for prefix in prefixes {
+        if lower.starts_with(prefix) {
+            let q = trimmed[prefix.len()..]
+                .trim_matches(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+                .trim();
+            if !q.is_empty() {
+                return Some(q.to_string());
+            }
+        }
+    }
+    None
+}
 
 /// Chat with the all-in-one assistant
 #[poise::command(slash_command)]
@@ -26,6 +55,44 @@ pub async fn chat(
     ctx.defer().await?;
 
     let guild_id = ctx.guild_id().map(|id| id.get());
+
+    // Deterministic fast path: don't rely on LLM tool-calling for obvious play requests.
+    if let (Some(gid), Some(query)) = (ctx.guild_id(), extract_direct_play_query(message.as_str()))
+    {
+        match enqueue_playback(
+            ctx.serenity_context(),
+            ctx.data(),
+            gid,
+            ctx.author().id,
+            query.clone(),
+            &ctx.data().music,
+            EnqueueOpts {
+                expand_playlist: false,
+                skip_voice_check: false,
+            },
+        )
+        .await
+        {
+            Ok(summary) => {
+                let title = summary.first_title.unwrap_or(query);
+                let embed = CreateEmbed::new()
+                    .title(if summary.added > 1 {
+                        format!("🎵 Added {} tracks", summary.added)
+                    } else {
+                        "🎵 Added to Queue".to_string()
+                    })
+                    .description(format!("**{}**", title))
+                    .color(0x57F287);
+                ctx.send(poise::CreateReply::default().embed(embed)).await?;
+                return Ok(());
+            }
+            Err(e) => {
+                ctx.say(format!("❌ {}", e)).await?;
+                return Ok(());
+            }
+        }
+    }
+
     let system_prompt = if let Some(gid) = guild_id {
         ctx.data()
             .db
@@ -59,7 +126,6 @@ pub async fn chat(
     {
         messages.push(datetime_msg.into());
     }
-
     let memory_service = UserMemoryService::new(ctx.data().db.clone(), ctx.data().cache.clone());
     let skip_memory = UserMemoryService::should_skip_memory(&message);
     let user_id = ctx.author().id.get();
@@ -141,17 +207,19 @@ pub async fn chat(
         ctx.serenity_context(),
         ctx.channel_id(),
         ctx.author().id,
+        ctx.guild_id(),
+        ctx.data(),
         std::time::Duration::from_secs(confirm_timeout_secs),
     );
     let response = match agent.run_with_confirmation(confirm_ctx, messages, 10).await {
         Ok(r) => r,
         Err(e) => {
             error!(
-                "Assistant error in /chat for channel {}: {}",
-                ctx.channel_id(),
-                e
+                error = %e,
+                channel_id = %ctx.channel_id(),
+                "Assistant error in /chat"
             );
-            format!("❌ Assistant Error: {}", e)
+            format!("❌ {}", crate::llm::format_assistant_error(&e))
         }
     };
 
@@ -261,4 +329,47 @@ pub async fn send_embed_reply(
         }
     }
     Ok(sent_ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_direct_play_query;
+
+    #[test]
+    fn extracts_basic_play_query() {
+        assert_eq!(
+            extract_direct_play_query("play under the bridge"),
+            Some("under the bridge".to_string())
+        );
+        assert_eq!(
+            extract_direct_play_query("play me under the bridge"),
+            Some("under the bridge".to_string())
+        );
+        assert_eq!(
+            extract_direct_play_query("play the national anthem"),
+            Some("national anthem".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_queue_prefixes() {
+        assert_eq!(
+            extract_direct_play_query("queue \"radiohead - creep\""),
+            Some("radiohead - creep".to_string())
+        );
+        assert_eq!(
+            extract_direct_play_query("put on never gonna give you up"),
+            Some("never gonna give you up".to_string())
+        );
+        assert_eq!(
+            extract_direct_play_query("add to queue daft punk one more time"),
+            Some("daft punk one more time".to_string())
+        );
+    }
+
+    #[test]
+    fn ignores_non_music_text() {
+        assert_eq!(extract_direct_play_query("can you help me"), None);
+        assert_eq!(extract_direct_play_query("play"), None);
+    }
 }

@@ -1,9 +1,10 @@
 use crate::config::Config;
+use anyhow::Context as _;
 use async_openai::{
     config::OpenAIConfig,
     types::{
-        ChatCompletionRequestMessage, ChatCompletionTool, ChatCompletionToolType,
-        CreateChatCompletionRequestArgs, FunctionObject,
+        ChatCompletionRequestMessage, ChatCompletionTool, ChatCompletionToolChoiceOption,
+        ChatCompletionToolType, CreateChatCompletionRequestArgs, FunctionObject,
     },
     Client,
 };
@@ -54,6 +55,25 @@ impl LlmClient {
         messages: Vec<ChatCompletionRequestMessage>,
         tools: Option<Vec<Value>>,
     ) -> anyhow::Result<async_openai::types::CreateChatCompletionResponse> {
+        self.chat_with_tools_mode(messages, tools, ChatCompletionToolChoiceOption::Auto)
+            .await
+    }
+
+    pub async fn chat_with_tools_required(
+        &self,
+        messages: Vec<ChatCompletionRequestMessage>,
+        tools: Option<Vec<Value>>,
+    ) -> anyhow::Result<async_openai::types::CreateChatCompletionResponse> {
+        self.chat_with_tools_mode(messages, tools, ChatCompletionToolChoiceOption::Required)
+            .await
+    }
+
+    async fn chat_with_tools_mode(
+        &self,
+        messages: Vec<ChatCompletionRequestMessage>,
+        tools: Option<Vec<Value>>,
+        tool_mode: ChatCompletionToolChoiceOption,
+    ) -> anyhow::Result<async_openai::types::CreateChatCompletionResponse> {
         use tokio::time::{timeout, Duration};
         let llm_timeout = Duration::from_secs(self.chat_timeout);
 
@@ -61,6 +81,7 @@ impl LlmClient {
         request_builder.model(&self.chat_model).messages(messages);
 
         if let Some(tools_vec) = tools {
+            let n_tools_in = tools_vec.len();
             let openai_tools: Vec<ChatCompletionTool> = tools_vec
                 .into_iter()
                 .filter_map(|t| {
@@ -73,12 +94,27 @@ impl LlmClient {
                 })
                 .collect();
 
+            if n_tools_in > 0 && openai_tools.is_empty() {
+                error!(
+                    "All {} tool definition(s) failed JSON parse; fail-fast (check ToolRegistry schemas)",
+                    n_tools_in
+                );
+                return Err(anyhow::anyhow!(
+                    "Internal error: no valid tool definitions ({} entries failed to parse)",
+                    n_tools_in
+                ));
+            }
+
             if !openai_tools.is_empty() {
                 request_builder.tools(openai_tools);
+                // Be explicit for providers that are strict about tool selection semantics.
+                request_builder.tool_choice(tool_mode);
             }
         }
 
-        let request = request_builder.build()?;
+        let request = request_builder
+            .build()
+            .context("failed to build chat completion request (check model / messages)")?;
 
         debug!(
             "Sending chat request to {} (timeout: {}s)...",
@@ -90,13 +126,24 @@ impl LlmClient {
             .map_err(|_| {
                 error!("LLM request timed out after {}s", llm_timeout.as_secs());
                 anyhow::anyhow!("LLM request timed out after {}s", llm_timeout.as_secs())
-            })??;
+            })?
+            .map_err(|e| {
+                error!(error = %e, model = %self.chat_model, "LLM chat API error");
+                anyhow::anyhow!("LLM API error: {} (model: {})", e, self.chat_model)
+            })?;
 
         let duration = start.elapsed();
         info!(
             "LLM chat request to {} completed in {:?}",
             self.chat_model, duration
         );
+
+        if response.choices.is_empty() {
+            error!("LLM returned zero choices (model: {})", self.chat_model);
+            return Err(anyhow::anyhow!(
+                "LLM returned an empty response (no choices)"
+            ));
+        }
 
         Ok(response)
     }
@@ -111,7 +158,13 @@ impl LlmClient {
             .choices
             .first()
             .and_then(|choice| choice.message.content.clone())
-            .unwrap_or_else(|| "No response from LLM".to_string());
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "LLM returned no message content (model: {})",
+                    self.chat_model
+                )
+            })?;
 
         Ok(content)
     }
@@ -153,7 +206,15 @@ impl LlmClient {
                 "Embedding request timed out after {}s",
                 self.embedding_timeout
             )
-        })??;
+        })?
+        .map_err(|e| {
+            error!(error = %e, model = %self.embedding_model, "Embedding API error");
+            anyhow::anyhow!(
+                "Embedding API error: {} (model: {})",
+                e,
+                self.embedding_model
+            )
+        })?;
 
         let duration = start.elapsed();
         info!(

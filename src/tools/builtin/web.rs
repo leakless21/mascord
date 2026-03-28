@@ -227,9 +227,7 @@ impl FetchUrlTool {
         let endpoint = format!("{}/{}", self.jina_reader_base.trim_end_matches('/'), url);
         let response = timeout(
             Duration::from_secs(self.timeout_secs.saturating_add(5)),
-            self.http_client
-                .get(endpoint)
-                .send(),
+            self.http_client.get(endpoint).send(),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Jina Reader fetch timed out"))??;

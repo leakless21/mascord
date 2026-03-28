@@ -58,7 +58,6 @@ pub async fn handle_reply(
     {
         messages.push(datetime_msg.into());
     }
-
     if skip_memory {
         if let Ok(msg) = ChatCompletionRequestSystemMessageArgs::default()
             .content("Temporary no-memory request: do not use or update user memory. Do not call get_user_memory.")
@@ -173,13 +172,19 @@ pub async fn handle_reply(
         ctx,
         new_message.channel_id,
         new_message.author.id,
+        new_message.guild_id,
+        data,
         std::time::Duration::from_secs(confirm_timeout_secs),
     );
     let response = match agent.run_with_confirmation(confirm_ctx, messages, 10).await {
         Ok(r) => r,
         Err(e) => {
-            error!("Agent error handling reply: {}", e);
-            format!("❌ Assistant Error: {}", e)
+            error!(
+                error = %e,
+                channel_id = %new_message.channel_id,
+                "Agent error handling reply"
+            );
+            format!("❌ {}", crate::llm::format_assistant_error(&e))
         }
     };
 

@@ -2,9 +2,11 @@ use crate::llm::client::LlmClient;
 use crate::llm::confirm::{confirm_tool_execution, ToolConfirmationContext};
 use crate::tools::{Tool, ToolRegistry};
 use crate::Data;
+use anyhow::Context as _;
 use async_openai::types::{
     ChatCompletionMessageToolCall, ChatCompletionRequestAssistantMessageArgs,
-    ChatCompletionRequestMessage, ChatCompletionRequestToolMessageArgs,
+    ChatCompletionRequestMessage as ReqMsg, ChatCompletionRequestMessage,
+    ChatCompletionRequestToolMessageArgs, ChatCompletionRequestUserMessageContent,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -15,6 +17,40 @@ pub struct Agent {
 }
 
 impl Agent {
+    fn latest_user_text(messages: &[ChatCompletionRequestMessage]) -> Option<String> {
+        messages.iter().rev().find_map(|m| match m {
+            ReqMsg::User(u) => match &u.content {
+                ChatCompletionRequestUserMessageContent::Text(t) => Some(t.clone()),
+                ChatCompletionRequestUserMessageContent::Array(_) => None,
+            },
+            _ => None,
+        })
+    }
+
+    fn has_action_intent(text: &str) -> bool {
+        let t = text.to_lowercase();
+        [
+            "play ",
+            "queue ",
+            "put on ",
+            "add to queue ",
+            "search ",
+            "look up ",
+            "fetch ",
+            "open ",
+            "check ",
+        ]
+        .iter()
+        .any(|p| t.contains(p))
+    }
+
+    fn should_retry_required_tool_call(messages: &[ChatCompletionRequestMessage]) -> bool {
+        let Some(user_text) = Self::latest_user_text(messages) else {
+            return false;
+        };
+        Self::has_action_intent(&user_text)
+    }
+
     pub fn new(data: &Data) -> Self {
         Self {
             llm: Arc::new(crate::llm::LlmClient::new(&data.config)),
@@ -66,14 +102,66 @@ impl Agent {
                 })
                 .collect();
 
-            let response = self
+            let mut response = self
                 .llm
                 .chat_with_tools(messages.clone(), Some(tool_definitions))
                 .await?;
-            let choice = response
+            let mut choice = response
                 .choices
                 .first()
                 .ok_or_else(|| anyhow::anyhow!("No response from LLM"))?;
+
+            if choice.message.tool_calls.is_none()
+                && Self::should_retry_required_tool_call(&messages)
+            {
+                tracing::warn!(
+                    "No tool call on explicit action request; retrying with required tool mode"
+                );
+                response = self
+                    .llm
+                    .chat_with_tools_required(
+                        messages.clone(),
+                        Some(
+                            all_tools
+                                .iter()
+                                .map(|t| {
+                                    serde_json::json!({
+                                        "type": "function",
+                                        "function": {
+                                            "name": t.name(),
+                                            "description": t.description(),
+                                            "parameters": t.parameters_schema()
+                                        }
+                                    })
+                                })
+                                .collect(),
+                        ),
+                    )
+                    .await?;
+                choice = response.choices.first().ok_or_else(|| {
+                    anyhow::anyhow!("No response from LLM after required-tool retry")
+                })?;
+            }
+
+            if choice
+                .message
+                .tool_calls
+                .as_ref()
+                .map(|c| c.is_empty())
+                .unwrap_or(false)
+            {
+                return Err(anyhow::anyhow!(
+                    "Model returned empty tool_calls; refusing to continue"
+                ));
+            }
+
+            if choice.message.tool_calls.is_none()
+                && Self::should_retry_required_tool_call(&messages)
+            {
+                return Err(anyhow::anyhow!(
+                    "The model did not invoke a tool for an explicit action request (even after required-tool retry). Try /play or a direct \"play …\" phrase, or check LLM_URL / model availability."
+                ));
+            }
 
             let assistant_message = &choice.message;
 
@@ -82,11 +170,13 @@ impl Agent {
             {
                 ChatCompletionRequestAssistantMessageArgs::default()
                     .tool_calls(tool_calls.clone())
-                    .build()?
+                    .build()
+                    .context("failed to serialize assistant tool_calls message")?
             } else {
                 ChatCompletionRequestAssistantMessageArgs::default()
                     .content(assistant_message.content.clone().unwrap_or_default())
-                    .build()?
+                    .build()
+                    .context("failed to build assistant message (no tools)")?
             };
 
             messages.push(request_assistant_message.into());
@@ -96,13 +186,17 @@ impl Agent {
                 for tool_call in tool_calls {
                     let result = self
                         .execute_tool_call(tool_call, &all_tools, confirmation)
-                        .await?;
+                        .await
+                        .with_context(|| {
+                            format!("tool `{}` execution failed", tool_call.function.name)
+                        })?;
 
                     messages.push(
                         ChatCompletionRequestToolMessageArgs::default()
                             .tool_call_id(tool_call.id.clone())
                             .content(result.to_string())
-                            .build()?
+                            .build()
+                            .context("failed to build tool result message")?
                             .into(),
                     );
                 }
@@ -131,7 +225,8 @@ impl Agent {
         confirmation: Option<&ToolConfirmationContext<'_>>,
     ) -> anyhow::Result<Value> {
         let name = &tool_call.function.name;
-        let arguments: Value = serde_json::from_str(&tool_call.function.arguments)?;
+        let arguments: Value = serde_json::from_str(&tool_call.function.arguments)
+            .with_context(|| format!("invalid JSON in tool arguments for `{}`", name))?;
 
         tracing::info!(
             "Agent executing tool: {} with arguments: {}",
@@ -142,10 +237,22 @@ impl Agent {
         let tool = available_tools
             .iter()
             .find(|t| t.name() == name)
+            .or_else(|| {
+                available_tools
+                    .iter()
+                    .find(|t| t.name().eq_ignore_ascii_case(name))
+            })
             .ok_or_else(|| {
                 tracing::error!("Tool not found: {}", name);
-                anyhow::anyhow!("Tool not found: {}", name)
+                anyhow::anyhow!("Tool not found: {} (not registered)", name)
             })?;
+        if name != tool.name() {
+            tracing::warn!(
+                "Tool name casing mismatch: model sent `{}`, using registered `{}`",
+                name,
+                tool.name()
+            );
+        }
 
         if tool.requires_confirmation() {
             let Some(confirm_ctx) = confirmation else {
@@ -161,7 +268,18 @@ impl Agent {
             }
         }
 
-        let result = tool.execute(arguments).await;
+        let result = if let Some(c) = confirmation {
+            let dc = crate::llm::confirm::DiscordToolContext {
+                serenity_ctx: c.serenity_ctx,
+                guild_id: c.guild_id,
+                channel_id: c.channel_id,
+                user_id: c.user_id,
+                data: c.data,
+            };
+            tool.execute_with_discord(arguments, Some(&dc)).await
+        } else {
+            tool.execute(arguments).await
+        };
         match &result {
             Ok(v) => tracing::debug!("Tool {} returned: {}", name, v),
             Err(e) => tracing::error!("Tool {} failed: {}", name, e),

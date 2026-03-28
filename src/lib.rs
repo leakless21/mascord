@@ -25,6 +25,8 @@ pub struct Data {
     pub db: db::Database,
     pub cache: cache::MessageCache,
     pub tools: std::sync::Arc<tools::ToolRegistry>,
+    /// Per-guild music (volume, queue loop, voice hook tracking).
+    pub music: std::sync::Arc<crate::commands::music::MusicState>,
     /// Bot's own user ID for context formatting
     pub bot_id: u64,
 }
