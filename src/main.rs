@@ -1,10 +1,14 @@
 use anyhow::Context as AnyhowContext;
-use mascord::commands::{admin, chat, memory, music, rag, reminder, settings};
+use mascord::commands::{about, admin, chat, memory, music, rag, reminder, settings};
 use mascord::{config::Config, Data};
 use poise::serenity_prelude as serenity;
 use serenity::all::Http;
 use songbird::serenity::SerenityInit;
 use std::collections::HashSet;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tracing::{debug, error, info};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -87,11 +91,31 @@ async fn main() -> anyhow::Result<()> {
         config.owner_id = owner_id;
     }
 
+    let readiness = Arc::new(AtomicBool::new(false));
+    if config.health_port > 0 {
+        let health_port = config.health_port;
+        let readiness_for_health = readiness.clone();
+        tokio::spawn(async move {
+            if let Err(e) = mascord::health::run_health_server(health_port, readiness_for_health).await
+            {
+                error!("Health server failed: {}", e);
+            }
+        });
+    }
+
     let discord_token = config.discord_token.clone();
+    let readiness_for_setup = readiness.clone();
+    let scheduler_instance_id = format!(
+        "{}-{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_millis()
+    );
+    let scheduler_instance_for_setup = scheduler_instance_id.clone();
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
             commands: vec![
+                about::about(),
                 chat::chat(),
                 memory::memory(),
                 rag::search(),
@@ -210,6 +234,9 @@ async fn main() -> anyhow::Result<()> {
         .setup(|ctx, _ready, framework| {
             Box::pin(async move {
                 info!("Bot is ready!");
+                let job_leases_enabled = config.job_leases_enabled;
+                let job_lease_ttl_secs = config.job_lease_ttl_secs;
+                let scheduler_instance_id = scheduler_instance_for_setup.clone();
 
                 // Optimized command registration (Ref: GAP-017 optimization)
                 if config.register_commands {
@@ -268,9 +295,10 @@ async fn main() -> anyhow::Result<()> {
                     let db_clone = db.clone();
                     let llm_clone = llm_client.clone();
                     let config_clone = config.clone();
+                    let scheduler_instance = scheduler_instance_id.clone();
                     tokio::spawn(async move {
                         let manager = mascord::summarize::SummarizationManager::new(
-                            db_clone,
+                            db_clone.clone(),
                             llm_clone,
                             &config_clone,
                         );
@@ -280,6 +308,23 @@ async fn main() -> anyhow::Result<()> {
 
                         loop {
                             interval.tick().await;
+                            if job_leases_enabled {
+                                let db_for_lease = db_clone.clone();
+                                let owner = scheduler_instance.clone();
+                                let acquired = db_for_lease
+                                    .run_blocking(move |db| {
+                                        db.try_acquire_job_lease(
+                                            "summarization",
+                                            &owner,
+                                            job_lease_ttl_secs,
+                                        )
+                                    })
+                                    .await
+                                    .unwrap_or(false);
+                                if !acquired {
+                                    continue;
+                                }
+                            }
                             info!("Starting periodic background summarization cycle...");
                             match manager.get_active_channels().await {
                                 Ok(channels) => {
@@ -407,15 +452,39 @@ async fn main() -> anyhow::Result<()> {
                 let reminder_http = ctx.http.clone();
                 let reminder_poll_secs = config.reminder_poll_interval_secs;
                 let reminder_batch_size = config.reminder_batch_size;
+                let scheduler_instance = scheduler_instance_id.clone();
+                let lease_db = db.clone();
                 tokio::spawn(async move {
-                    mascord::reminders::ReminderDispatcher::new(
+                    let dispatcher = mascord::reminders::ReminderDispatcher::new(
                         reminder_service,
                         reminder_http,
                         reminder_poll_secs,
                         reminder_batch_size,
-                    )
-                    .run()
-                    .await;
+                    );
+                    if !job_leases_enabled {
+                        dispatcher.run().await;
+                        return;
+                    }
+
+                    let mut ticker =
+                        tokio::time::interval(tokio::time::Duration::from_secs(reminder_poll_secs));
+                    loop {
+                        ticker.tick().await;
+                        let db_for_lease = lease_db.clone();
+                        let owner = scheduler_instance.clone();
+                        let acquired = db_for_lease
+                            .run_blocking(move |db| {
+                                db.try_acquire_job_lease("reminders", &owner, job_lease_ttl_secs)
+                            })
+                            .await
+                            .unwrap_or(false);
+                        if !acquired {
+                            continue;
+                        }
+                        if let Err(e) = dispatcher.run_once().await {
+                            tracing::error!("Reminder dispatch cycle failed: {}", e);
+                        }
+                    }
                 });
 
                 if config.embedding_indexer_enabled {
@@ -425,19 +494,50 @@ async fn main() -> anyhow::Result<()> {
                     let llm_index = std::sync::Arc::new(llm_client.clone());
                     let batch_size = config.embedding_indexer_batch_size;
                     let interval_secs = config.embedding_indexer_interval_secs;
+                    let scheduler_instance = scheduler_instance_id.clone();
+                    let lease_db = db.clone();
                     tokio::spawn(async move {
-                        mascord::indexer::EmbeddingIndexer::new(
+                        let indexer = mascord::indexer::EmbeddingIndexer::new(
                             db_index,
                             llm_index,
                             batch_size,
                             tokio::time::Duration::from_secs(interval_secs),
-                        )
-                        .run()
-                        .await;
+                        );
+                        if !job_leases_enabled {
+                            indexer.run().await;
+                            return;
+                        }
+                        let mut ticker = tokio::time::interval(tokio::time::Duration::from_secs(
+                            interval_secs,
+                        ));
+                        loop {
+                            ticker.tick().await;
+                            let db_for_lease = lease_db.clone();
+                            let owner = scheduler_instance.clone();
+                            let acquired = db_for_lease
+                                .run_blocking(move |db| {
+                                    db.try_acquire_job_lease(
+                                        "embedding_indexer",
+                                        &owner,
+                                        job_lease_ttl_secs,
+                                    )
+                                })
+                                .await
+                                .unwrap_or(false);
+                            if !acquired {
+                                continue;
+                            }
+                            match indexer.run_once().await {
+                                Ok(0) => tracing::debug!("Embedding indexer: no messages to index"),
+                                Ok(n) => tracing::info!("Embedding indexer: indexed {} messages", n),
+                                Err(e) => tracing::error!("Embedding indexer error: {}", e),
+                            }
+                        }
                     });
                 }
 
                 let bot_id = config.application_id;
+                readiness_for_setup.store(true, Ordering::SeqCst);
 
                 Ok(Data {
                     config,

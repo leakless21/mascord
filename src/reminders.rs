@@ -40,6 +40,10 @@ impl ReminderDispatcher {
         }
     }
 
+    pub async fn run_once(&self) -> anyhow::Result<()> {
+        self.dispatch_due().await
+    }
+
     async fn dispatch_due(&self) -> anyhow::Result<()> {
         let reminders = self.service.get_due_reminders(self.batch_size).await?;
         if reminders.is_empty() {

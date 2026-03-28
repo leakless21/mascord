@@ -274,6 +274,9 @@ mod tests {
             summarization_refresh_days_lookback: 14,
             reminder_poll_interval_secs: 30,
             reminder_batch_size: 25,
+            health_port: 0,
+            job_leases_enabled: false,
+            job_lease_ttl_secs: 120,
             long_term_retention_days: 365,
         }
     }

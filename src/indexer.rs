@@ -33,6 +33,10 @@ impl EmbeddingIndexer {
         }
     }
 
+    pub async fn run_once(&self) -> anyhow::Result<usize> {
+        self.process_batch().await
+    }
+
     async fn process_batch(&self) -> anyhow::Result<usize> {
         let batch_size = self.batch_size;
         let db = self.db.clone();

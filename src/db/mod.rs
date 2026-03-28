@@ -221,6 +221,13 @@ impl Database {
             );
             CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders (remind_at, delivered_at);
             CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders (user_id, delivered_at);
+
+            CREATE TABLE IF NOT EXISTS job_leases (
+                lease_name TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                lease_until DATETIME NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
             ",
         )
         .context("Failed to initialize database schema")?;
@@ -275,6 +282,29 @@ impl Database {
 
         debug!("Database: Schema initialized successfully");
         Ok(())
+    }
+
+    pub fn try_acquire_job_lease(
+        &self,
+        lease_name: &str,
+        owner_id: &str,
+        ttl_secs: u64,
+    ) -> anyhow::Result<bool> {
+        let conn = self.lock_conn()?;
+        let ttl_expr = format!("+{} seconds", ttl_secs);
+        let changed = conn.execute(
+            "INSERT INTO job_leases (lease_name, owner_id, lease_until, updated_at)
+             VALUES (?1, ?2, datetime('now', ?3), CURRENT_TIMESTAMP)
+             ON CONFLICT(lease_name) DO UPDATE SET
+                owner_id = excluded.owner_id,
+                lease_until = excluded.lease_until,
+                updated_at = CURRENT_TIMESTAMP
+             WHERE job_leases.lease_until <= CURRENT_TIMESTAMP
+                OR job_leases.owner_id = excluded.owner_id",
+            (lease_name, owner_id, ttl_expr.as_str()),
+        )?;
+
+        Ok(changed > 0)
     }
 
     pub fn save_message(
@@ -1270,6 +1300,9 @@ mod tests {
             summarization_refresh_days_lookback: 14,
             reminder_poll_interval_secs: 30,
             reminder_batch_size: 25,
+            health_port: 0,
+            job_leases_enabled: false,
+            job_lease_ttl_secs: 120,
             long_term_retention_days: 365,
         }
     }

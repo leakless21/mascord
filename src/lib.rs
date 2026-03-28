@@ -4,6 +4,7 @@ pub mod config;
 pub mod context;
 pub mod db;
 pub mod discord_text;
+pub mod health;
 pub mod indexer;
 pub mod llm;
 pub mod mention;

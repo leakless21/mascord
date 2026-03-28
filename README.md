@@ -330,14 +330,19 @@ Use `/agent` for requests that require multiple actions.
 
 | Command | Description |
 |---------|-------------|
+| `/about` | Show onboarding info, key commands, and deployment safety notes. |
 | `/chat` | Chat with the bot using current context memory. |
 | `/search` | Manually search through the RAG database. |
+| `/memory` | Manage global user memory (`enable`, `disable`, `show`, `remember`, `forget`, `delete_data`). |
 | `/reminder` | Set reminders directly (`when` + `message`) or manage via `action` (`list`, `cancel`, `help`). |
-| `/agent` | Task the bot to perform a complex, multi-step action. |
+| `/join` | Join your current voice channel. |
 | `/play` | Stream audio from a YouTube URL. |
+| `/skip` | Skip the current track in queue. |
+| `/leave` | Leave voice channel and cleanup queue state. |
 | `/queue` | View the interactive, paginated music player. |
-| `/settings context` | Manage context limits or trigger common memory refreshes. |
+| `/settings` | Manage context/memory/system prompt/timeouts per guild. |
 | `/admin shutdown` | Safely save state and exit (Owner Only). |
+| `/admin restart` | Gracefully restart shards (Owner Only). |
 
 ---
 
@@ -347,6 +352,7 @@ Start with the most relevant guide for your needs:
 
 - **[Quick Start Guide](docs/QUICK_START.md)** - Get running in 5 minutes (⭐ start here!)
 - **[Installation Guide](docs/INSTALLATION.md)** - Full setup with troubleshooting
+- **[Deployment Guide](docs/DEPLOYMENT.md)** - Production deploy and health checks
 - **[Command Reference](docs/COMMANDS.md)** - All available commands with examples
 - **[Documentation Index](docs/DOCUMENTATION_INDEX.md)** - Complete documentation map
 
@@ -356,6 +362,7 @@ For deeper insights into the project, explore the `docs/` directory:
 
 - [Architecture](docs/ARCHITECTURE.md): System design, component overview, and data flow.
 - [Requirements](docs/REQUIREMENTS.md): Detailed functional and non-functional goals.
+- [Multi-server & benchmark spec](docs/MULTI_SERVER_PRODUCT_SPEC.md): Product parity vs popular bots, Discord UX standards, phased roadmap.
 - [Component Docs](docs/COMPONENT_BOT_DOCS.md): Deep dives into specific modules (Bot, LLM, RAG, Voice, Tools).
 
 ### Setup & Troubleshooting

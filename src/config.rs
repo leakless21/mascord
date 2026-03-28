@@ -58,6 +58,9 @@ pub struct Config {
     // Reminder scheduler settings
     pub reminder_poll_interval_secs: u64,
     pub reminder_batch_size: usize,
+    pub health_port: u16,
+    pub job_leases_enabled: bool,
+    pub job_lease_ttl_secs: u64,
 
     // Long-term retention (RAG store)
     pub long_term_retention_days: u64,
@@ -221,6 +224,18 @@ impl Config {
                 .unwrap_or_else(|_| "25".to_string())
                 .parse()
                 .unwrap_or(25),
+            health_port: env::var("HEALTH_PORT")
+                .unwrap_or_else(|_| "0".to_string())
+                .parse()
+                .unwrap_or(0),
+            job_leases_enabled: env::var("JOB_LEASES_ENABLED")
+                .unwrap_or_else(|_| "false".to_string())
+                .parse()
+                .unwrap_or(false),
+            job_lease_ttl_secs: env::var("JOB_LEASE_TTL_SECS")
+                .unwrap_or_else(|_| "120".to_string())
+                .parse()
+                .unwrap_or(120),
             long_term_retention_days: env::var("LONG_TERM_RETENTION_DAYS")
                 .unwrap_or_else(|_| "365".to_string())
                 .parse()
@@ -320,6 +335,9 @@ impl std::fmt::Debug for Config {
                 &self.reminder_poll_interval_secs,
             )
             .field("reminder_batch_size", &self.reminder_batch_size)
+            .field("health_port", &self.health_port)
+            .field("job_leases_enabled", &self.job_leases_enabled)
+            .field("job_lease_ttl_secs", &self.job_lease_ttl_secs)
             .field("long_term_retention_days", &self.long_term_retention_days)
             .finish()
     }
