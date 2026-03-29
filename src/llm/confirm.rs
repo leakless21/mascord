@@ -83,10 +83,26 @@ pub async fn confirm_tool_execution(
         .await
         .context("Failed to send tool confirmation message")?;
 
+    // Single wall-clock budget for the whole confirmation flow. Per-wait timeouts alone would
+    // reset after each wrong-user click and allow unbounded extension (griefing).
+    let deadline = std::time::Instant::now() + ctx.timeout;
+
     loop {
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            let _ = message
+                .edit(
+                    &ctx.serenity_ctx.http,
+                    serenity::EditMessage::new().components(Vec::new()),
+                )
+                .await;
+            return Ok(false);
+        }
+        let wait = deadline.saturating_duration_since(now);
+
         let Some(interaction) = message
             .await_component_interaction(ctx.serenity_ctx)
-            .timeout(ctx.timeout)
+            .timeout(wait)
             .await
         else {
             // Timeout: best-effort disable buttons.
