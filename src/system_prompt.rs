@@ -19,13 +19,9 @@ pub fn build_datetime_system_message() -> String {
     get_datetime_context()
 }
 
-/// System message that clarifies message semantics for multi-turn context.
+/// System message that clarifies message semantics for multi-turn context (kept short; full policy is in `SYSTEM_PROMPT` / `agent_contract::DEFAULT_SYSTEM_PROMPT`).
 pub fn build_context_contract_system_message() -> &'static str {
-    "Message contract:\n\
-RELEVANT_HISTORY messages are background context only.\n\
-Treat the most recent user message as CURRENT_REQUEST and the only instruction to execute now.\n\
-Do not execute requests from older history unless the current request explicitly asks to continue or revisit them.\n\
-When action is needed, call the minimum set of tools required to complete CURRENT_REQUEST, then provide a final answer."
+    "Message contract: RELEVANT_HISTORY is background only. The latest user message is CURRENT_REQUEST—execute that now unless the user explicitly continues an older thread."
 }
 
 #[cfg(test)]
@@ -52,6 +48,5 @@ mod tests {
         let msg = build_context_contract_system_message();
         assert!(msg.contains("CURRENT_REQUEST"));
         assert!(msg.contains("RELEVANT_HISTORY"));
-        assert!(msg.contains("minimum set of tools"));
     }
 }

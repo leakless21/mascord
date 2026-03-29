@@ -27,6 +27,56 @@ pub struct FetchUrlTool {
     pub jina_reader_base: String,
 }
 
+fn enrich_searx_result(item: Value) -> Value {
+    let url = item["url"].as_str().unwrap_or_default();
+    let title = item["title"].as_str().unwrap_or_default();
+    let snippet = item["content"].as_str().unwrap_or_default();
+    let engine = item["engine"].as_str().unwrap_or_default();
+    let score = item["score"].as_f64().unwrap_or(0.0);
+    let published = item["publishedDate"]
+        .as_str()
+        .or_else(|| item["pubdate"].as_str())
+        .unwrap_or_default();
+    json!({
+        "title": title,
+        "url": url,
+        "snippet": snippet,
+        "engine": engine,
+        "score": score,
+        "domain": host_label(url),
+        "url_kind": classify_url_kind(url),
+        "published": published,
+    })
+}
+
+fn host_label(url: &str) -> String {
+    Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(std::string::ToString::to_string))
+        .unwrap_or_default()
+}
+
+fn classify_url_kind(url: &str) -> &'static str {
+    let u = url.to_ascii_lowercase();
+    if u.contains("youtube.com") || u.contains("youtu.be") {
+        if u.contains("list=") {
+            "youtube_playlist"
+        } else {
+            "youtube_video"
+        }
+    } else if u.contains("spotify.com") {
+        "spotify"
+    } else if u.contains("reddit.com") {
+        "reddit"
+    } else if u.contains("wikipedia.org") {
+        "wikipedia"
+    } else if u.contains("github.com") {
+        "github"
+    } else {
+        "web"
+    }
+}
+
 #[async_trait]
 impl Tool for WebSearchTool {
     fn name(&self) -> &str {
@@ -34,7 +84,7 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search the web using SearXNG and return concise, ranked results. Useful for quick discovery, fact-finding, and gathering supporting evidence before acting."
+        "Search the web via SearXNG. Use when you need fresh facts, sources, or candidate links before acting. Avoid for purely internal or already-specific requests. Each result includes domain and url_kind to help you rank (prefer authoritative sources over generic playlists when quality matters)."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -84,15 +134,7 @@ impl Tool for WebSearchTool {
         let results = raw_results
             .into_iter()
             .take(limit)
-            .map(|item| {
-                json!({
-                    "title": item["title"].as_str().unwrap_or_default(),
-                    "url": item["url"].as_str().unwrap_or_default(),
-                    "snippet": item["content"].as_str().unwrap_or_default(),
-                    "engine": item["engine"].as_str().unwrap_or_default(),
-                    "score": item["score"].as_f64().unwrap_or(0.0)
-                })
-            })
+            .map(|item| enrich_searx_result(item))
             .collect::<Vec<_>>();
 
         Ok(json!({
@@ -110,7 +152,7 @@ impl Tool for FetchUrlTool {
     }
 
     fn description(&self) -> &str {
-        "Fetch a URL and return extracted readable text content."
+        "Fetch a URL and return extracted readable text. Use after web_search when you need page detail, or when the user gives a link. Avoid fetching large binaries; prefer short reads. If extraction is poor, retry with auto_render or render_mode per schema."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -527,5 +569,38 @@ mod tests {
             "https://example.com",
             RenderMode::Off
         ));
+    }
+
+    #[test]
+    fn test_classify_url_kind() {
+        assert_eq!(
+            classify_url_kind("https://www.youtube.com/watch?v=abc"),
+            "youtube_video"
+        );
+        assert_eq!(
+            classify_url_kind("https://www.youtube.com/playlist?list=PLabc"),
+            "youtube_playlist"
+        );
+        assert_eq!(
+            classify_url_kind("https://open.spotify.com/intl-de/track/x"),
+            "spotify"
+        );
+        assert_eq!(classify_url_kind("https://example.com/page"), "web");
+    }
+
+    #[test]
+    fn test_enrich_searx_result_metadata() {
+        let item = json!({
+            "title": "T",
+            "url": "https://www.youtube.com/watch?v=1",
+            "content": "snippet",
+            "engine": "google",
+            "score": 1.0,
+            "publishedDate": "2024-01-01"
+        });
+        let out = enrich_searx_result(item);
+        assert_eq!(out["url_kind"], "youtube_video");
+        assert_eq!(out["domain"], "www.youtube.com");
+        assert_eq!(out["published"], "2024-01-01");
     }
 }

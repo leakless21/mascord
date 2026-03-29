@@ -15,7 +15,7 @@ impl Tool for GetUserMemoryTool {
     }
 
     fn description(&self) -> &str {
-        "Fetch the user's full global memory profile (opt-in). Use when detailed preferences or background are needed. Requires user_id."
+        "Fetch the opt-in global user memory profile (preferences/background). Use when personalization clearly helps and the user has memory enabled. Avoid for one-off factual questions better answered via web_search or when the user asked to stay anonymous to memory."
     }
 
     fn parameters_schema(&self) -> Value {

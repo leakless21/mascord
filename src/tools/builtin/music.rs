@@ -217,7 +217,7 @@ impl Tool for MusicTool {
     }
 
     fn description(&self) -> &str {
-        "Control music in a voice channel: same actions as slash commands (join, play, skip, leave, pause, resume, volume, now_playing, lyrics, loop, clear, shuffle, remove, move_track, queue, help). User must be in a guild; for play/join typically in a voice channel. For best results with play, prefer concrete queries (URL or artist/title) when available. Use action=help for parameters."
+        "Control music in a voice channel (join, play, skip, leave, pause, resume, volume, now_playing, lyrics, loop, clear, shuffle, remove, move_track, queue, help). Requires a guild; play/join usually need the user in voice. Use when the user wants playback or queue control. Avoid when the user only asked for research with no playback intent; use search tools first if they need sources before deciding what to play. Prefer concrete play queries (URL or artist+title). action=help lists parameters."
     }
 
     fn parameters_schema(&self) -> Value {

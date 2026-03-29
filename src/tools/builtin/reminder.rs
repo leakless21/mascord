@@ -116,7 +116,7 @@ impl Tool for ReminderTool {
     }
 
     fn description(&self) -> &str {
-        "Same as the /reminder slash command: manage reminders with `action` set | list | cancel | help. For action=set provide `when` and `message` (natural-language time, UTC). For list optional `limit` (1–20). For cancel provide `reminder_id`. Setting reminders requires a server channel (guild), not DMs."
+        "Manage reminders (same as /reminder): action set | list | cancel | help. Use when the user wants timed pings or to list/cancel reminders. Do not use for playback, web research, or unrelated tasks. action=set needs `when` and `message` (natural language, stored as UTC context); list accepts optional limit; cancel needs reminder_id. action=set requires a guild channel, not DMs."
     }
 
     fn parameters_schema(&self) -> Value {

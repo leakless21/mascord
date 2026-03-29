@@ -1,3 +1,4 @@
+pub mod agent_contract;
 pub mod cache;
 pub mod commands;
 pub mod config;

@@ -4,8 +4,10 @@
 //! into LLM conversations.
 
 use async_openai::types::{
-    ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage,
-    ChatCompletionRequestUserMessageArgs,
+    ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestAssistantMessageContent,
+    ChatCompletionRequestMessage as ReqMsg,
+    ChatCompletionRequestMessage, ChatCompletionRequestUserMessageArgs,
+    ChatCompletionRequestUserMessageContent,
 };
 use chrono::{DateTime, Duration, Utc};
 use serenity::model::channel::Message;
@@ -227,8 +229,49 @@ impl ConversationContext {
             channel_id,
             n_from_cache
         );
+        short_term_messages = Self::apply_context_hygiene(short_term_messages);
         messages.append(&mut short_term_messages);
         messages
+    }
+
+    /// Collapse consecutive duplicate user/assistant text turns to cut repeated spam in busy channels.
+    fn apply_context_hygiene(messages: Vec<ChatCompletionRequestMessage>) -> Vec<ChatCompletionRequestMessage> {
+        if messages.len() < 2 {
+            return messages;
+        }
+        let mut out: Vec<ChatCompletionRequestMessage> = Vec::with_capacity(messages.len());
+        for m in messages {
+            let dup = match (out.last(), Self::context_message_fingerprint(&m)) {
+                (Some(prev), Some(fp)) => Self::context_message_fingerprint(prev).as_ref() == Some(&fp),
+                _ => false,
+            };
+            if !dup {
+                out.push(m);
+            }
+        }
+        out
+    }
+
+    fn normalize_ws(s: &str) -> String {
+        s.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    fn context_message_fingerprint(m: &ChatCompletionRequestMessage) -> Option<String> {
+        match m {
+            ReqMsg::User(u) => match &u.content {
+                ChatCompletionRequestUserMessageContent::Text(t) => {
+                    Some(format!("u:{}", Self::normalize_ws(t)))
+                }
+                _ => None,
+            },
+            ReqMsg::Assistant(a) => match &a.content {
+                Some(ChatCompletionRequestAssistantMessageContent::Text(t)) => {
+                    Some(format!("a:{}", Self::normalize_ws(t)))
+                }
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
     /// Formats a Discord message into an LLM message
@@ -290,6 +333,7 @@ impl ConversationContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_openai::types::ChatCompletionRequestUserMessageArgs;
     use serenity::model::id::MessageId;
     use serenity::model::id::UserId;
     use serenity::model::timestamp::Timestamp;
@@ -504,5 +548,26 @@ mod tests {
         );
 
         assert_eq!(context.len(), 2);
+    }
+
+    #[test]
+    fn test_apply_context_hygiene_dedupes_consecutive_identical() {
+        let u1: ChatCompletionRequestMessage = ChatCompletionRequestUserMessageArgs::default()
+            .content("same line")
+            .build()
+            .unwrap()
+            .into();
+        let u2: ChatCompletionRequestMessage = ChatCompletionRequestUserMessageArgs::default()
+            .content("same line")
+            .build()
+            .unwrap()
+            .into();
+        let u3: ChatCompletionRequestMessage = ChatCompletionRequestUserMessageArgs::default()
+            .content("other")
+            .build()
+            .unwrap()
+            .into();
+        let out = ConversationContext::apply_context_hygiene(vec![u1, u2, u3]);
+        assert_eq!(out.len(), 2);
     }
 }

@@ -1,3 +1,4 @@
+use crate::agent_contract::DEFAULT_SYSTEM_PROMPT;
 use dotenvy::dotenv;
 use serde::Deserialize;
 use std::env;
@@ -193,22 +194,6 @@ pub(crate) fn test_memory_config() -> Config {
         autodream_channel_activity_hours: 72,
     }
 }
-
-/// Default when `SYSTEM_PROMPT` is unset.
-/// Style follows common agent prompts: role + tone + *when* to use tools; tool definitions carry *which* tools and their parameters (avoid duplicating schemas here).
-const DEFAULT_SYSTEM_PROMPT: &str = "You are Mascord, a Discord assistant for a homelab community. \
-Identity and tone: clear, concise, and helpful; light snark and dry wit are on-brand, but never cruel, hostile, or punching down. \
-Conversation policy: treat prior conversation as context only; execute the most recent user request as the active task unless the user explicitly asks to revisit earlier requests. \
-Decision loop: classify -> plan -> act -> check. \
-Classify each active request as concrete, open-ended/evaluative, or ambiguous. \
-Plan by strategy: concrete -> direct execution path; open-ended/evaluative -> brief discovery then execute; ambiguous -> ask one concise clarification unless the user clearly asks you to choose, then state assumptions briefly and proceed. \
-Discovery policy: when quality depends on external evidence, preferences, or ranking, gather brief relevant evidence before taking side-effect actions; if the request is already specific and actionable, execute directly. \
-Tool policy: when action is needed and an available tool can do it, call the right tool with parameters that match its schema exactly; use only defined tool names and fields. \
-Quality policy: prefer the fewest tool calls that still produce a reliable result; do not skip necessary discovery only to minimize calls. \
-Loop policy: after each tool result, decide exactly one next step: done, one more step, or clarify. Keep loops short: at most 2 discovery steps and 1 recovery step after failure. \
-Failure policy: if a tool fails or yields weak signal, adapt with a different viable step once, then deliver best effort with caveats or ask one targeted follow-up; do not repeat the same failing call. \
-Completion policy: once the task is complete, stop calling tools and provide a direct final answer. \
-For questions, opinions, or chat that do not require an action, answer in plain text.";
 
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
@@ -678,6 +663,7 @@ pub const DISCORD_EMBED_LIMIT: usize = 4096;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent_contract::DEFAULT_SYSTEM_PROMPT;
     use std::env;
 
     #[test]

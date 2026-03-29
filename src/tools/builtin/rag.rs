@@ -14,7 +14,7 @@ impl Tool for SearchLocalHistoryTool {
         "search_local_history"
     }
     fn description(&self) -> &str {
-        "Search past Discord messages in this server. Use this when the user asks about past events or conversations that are not in the current context."
+        "Search this server's archived Discord messages (semantic + keyword). Use when the user asks about past channel discussions, decisions, or links shared here that are not in the current prompt. Avoid as a substitute for web_search when the user needs the public internet or fresh pages."
     }
     fn parameters_schema(&self) -> Value {
         json!({

@@ -45,6 +45,8 @@ impl ToolRunState {
         per_tool_remaining.insert("fetch_url".to_string(), 2);
         per_tool_remaining.insert("music".to_string(), 4);
         per_tool_remaining.insert("reminder".to_string(), 3);
+        per_tool_remaining.insert("search_local_history".to_string(), 2);
+        per_tool_remaining.insert("get_user_memory".to_string(), 2);
         Self {
             per_tool_remaining,
             total_remaining: 12,
