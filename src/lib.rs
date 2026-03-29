@@ -1,7 +1,6 @@
 pub mod cache;
 pub mod commands;
 pub mod config;
-pub mod play_intent;
 pub mod response_embed;
 pub mod context;
 pub mod db;

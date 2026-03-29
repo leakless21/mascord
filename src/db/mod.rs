@@ -281,6 +281,17 @@ impl Database {
         }
 
         if let Err(e) = conn.execute(
+            "ALTER TABLE settings ADD COLUMN voice_alone_timeout_secs INTEGER",
+            [],
+        ) {
+            let msg = e.to_string();
+            if !msg.contains("duplicate column name") {
+                return Err(e)
+                    .context("Failed to migrate: add settings.voice_alone_timeout_secs column");
+            }
+        }
+
+        if let Err(e) = conn.execute(
             "ALTER TABLE user_memory ADD COLUMN autodream_at DATETIME",
             [],
         ) {
@@ -548,6 +559,36 @@ impl Database {
              VALUES (?1, ?2)
              ON CONFLICT(guild_id) DO UPDATE
                  SET voice_idle_timeout_secs = excluded.voice_idle_timeout_secs",
+            (guild_id.to_string(), timeout_secs),
+        )?;
+        Ok(())
+    }
+
+    pub fn get_guild_voice_alone_timeout(&self, guild_id: u64) -> anyhow::Result<Option<u64>> {
+        let conn = self.lock_conn()?;
+        let mut stmt =
+            conn.prepare("SELECT voice_alone_timeout_secs FROM settings WHERE guild_id = ?1")?;
+        let mut rows = stmt.query([guild_id.to_string()])?;
+
+        if let Some(row) = rows.next()? {
+            let value: Option<u64> = row.get(0).ok();
+            Ok(value)
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn set_guild_voice_alone_timeout(
+        &self,
+        guild_id: u64,
+        timeout_secs: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "INSERT INTO settings (guild_id, voice_alone_timeout_secs)
+             VALUES (?1, ?2)
+             ON CONFLICT(guild_id) DO UPDATE
+                 SET voice_alone_timeout_secs = excluded.voice_alone_timeout_secs",
             (guild_id.to_string(), timeout_secs),
         )?;
         Ok(())

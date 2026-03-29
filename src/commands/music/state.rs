@@ -1,5 +1,5 @@
-use std::collections::HashSet;
-use std::sync::RwLock;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, RwLock};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LoopMode {
@@ -34,6 +34,8 @@ pub struct MusicState {
     guilds: RwLock<std::collections::HashMap<u64, GuildMusicSettings>>,
     /// Guilds where we attached idle + queue-loop global handlers on the active Call.
     voice_hooks_installed: RwLock<HashSet<u64>>,
+    /// Pending `leave when alone` sleep tasks (aborted when listeners rejoin or on manual leave).
+    alone_leave_tasks: Mutex<HashMap<u64, tokio::task::JoinHandle<()>>>,
 }
 
 impl MusicState {
@@ -106,6 +108,28 @@ impl MusicState {
     pub fn clear_voice_hooks(&self, guild_id: u64) {
         let mut s = self.voice_hooks_installed.write().expect("hooks lock");
         s.remove(&guild_id);
+    }
+
+    /// Abort a pending alone-leave timer for this guild, if any.
+    pub fn cancel_alone_leave_task(&self, guild_id: u64) {
+        let mut g = self.alone_leave_tasks.lock().expect("alone_leave_tasks");
+        if let Some(h) = g.remove(&guild_id) {
+            h.abort();
+        }
+    }
+
+    /// Replace any pending alone-leave timer; aborts the previous handle.
+    pub fn replace_alone_leave_task(&self, guild_id: u64, handle: tokio::task::JoinHandle<()>) {
+        let mut g = self.alone_leave_tasks.lock().expect("alone_leave_tasks");
+        if let Some(old) = g.insert(guild_id, handle) {
+            old.abort();
+        }
+    }
+
+    /// Remove the slot without aborting (task already finished or superseded elsewhere).
+    pub fn take_alone_leave_task(&self, guild_id: u64) {
+        let mut g = self.alone_leave_tasks.lock().expect("alone_leave_tasks");
+        g.remove(&guild_id);
     }
 }
 

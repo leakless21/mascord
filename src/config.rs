@@ -31,7 +31,16 @@ pub struct Config {
     // Timeout & Maintenance settings
     pub llm_timeout_secs: u64,
     pub embedding_timeout_secs: u64,
+    /// Seconds after the queue is empty (last track ended) before leaving voice (`0` = leave immediately after drain).
     pub voice_idle_timeout_secs: u64,
+    /// Seconds to wait after the voice channel has no human listeners before disconnecting (`0` = disabled).
+    pub voice_alone_timeout_secs: u64,
+    /// Move the bot when the last human listener switches to another VC (`false` = predictable; enable for “follow me”).
+    pub voice_follow_user_move: bool,
+    /// Max tracks in the session queue (current + waiting); `0` = no limit (capped at 500 when set).
+    pub max_queue_tracks: usize,
+    /// Allow enqueueing the same URL more than once.
+    pub voice_allow_duplicate_urls: bool,
     pub dev_guild_id: Option<u64>,
     pub register_commands: bool,
 
@@ -112,7 +121,12 @@ pub(crate) fn test_memory_config() -> Config {
         context_retention_hours: 24,
         llm_timeout_secs: 120,
         embedding_timeout_secs: 30,
-        voice_idle_timeout_secs: 300,
+        // Voice: ~3 min after queue ends; ~1.5 min when VC has no humans; follow off by default.
+        voice_idle_timeout_secs: 180,
+        voice_alone_timeout_secs: 90,
+        voice_follow_user_move: false,
+        max_queue_tracks: 75,
+        voice_allow_duplicate_urls: true,
         dev_guild_id: None,
         register_commands: false,
         agent_confirm_timeout_secs: 300,
@@ -235,9 +249,32 @@ impl Config {
                 .parse()
                 .unwrap_or(30),
             voice_idle_timeout_secs: env::var("VOICE_IDLE_TIMEOUT_SECS")
-                .unwrap_or_else(|_| "300".to_string())
+                .unwrap_or_else(|_| "180".to_string())
                 .parse()
-                .unwrap_or(300),
+                .unwrap_or(180),
+            voice_alone_timeout_secs: env::var("VOICE_ALONE_TIMEOUT_SECS")
+                .unwrap_or_else(|_| "90".to_string())
+                .parse()
+                .unwrap_or(90),
+            voice_follow_user_move: env::var("VOICE_FOLLOW_USER_MOVE")
+                .unwrap_or_else(|_| "false".to_string())
+                .parse()
+                .unwrap_or(false),
+            max_queue_tracks: {
+                let n: usize = env::var("MAX_QUEUE_TRACKS")
+                    .unwrap_or_else(|_| "75".to_string())
+                    .parse()
+                    .unwrap_or(75);
+                if n == 0 {
+                    0
+                } else {
+                    n.min(500)
+                }
+            },
+            voice_allow_duplicate_urls: env::var("VOICE_ALLOW_DUPLICATE_URLS")
+                .unwrap_or_else(|_| "true".to_string())
+                .parse()
+                .unwrap_or(true),
             dev_guild_id: env::var("DEV_GUILD_ID").ok().and_then(|id| id.parse().ok()),
             register_commands: env::var("REGISTER_COMMANDS")
                 .unwrap_or_else(|_| "false".to_string())
@@ -323,6 +360,7 @@ impl Config {
                 .unwrap_or(25),
             health_port: env::var("HEALTH_PORT")
                 .unwrap_or_else(|_| "0".to_string())
+                .trim()
                 .parse()
                 .unwrap_or(0),
             job_leases_enabled: env::var("JOB_LEASES_ENABLED")
@@ -417,6 +455,10 @@ impl std::fmt::Debug for Config {
             .field("llm_timeout_secs", &self.llm_timeout_secs)
             .field("embedding_timeout_secs", &self.embedding_timeout_secs)
             .field("voice_idle_timeout_secs", &self.voice_idle_timeout_secs)
+            .field("voice_alone_timeout_secs", &self.voice_alone_timeout_secs)
+            .field("voice_follow_user_move", &self.voice_follow_user_move)
+            .field("max_queue_tracks", &self.max_queue_tracks)
+            .field("voice_allow_duplicate_urls", &self.voice_allow_duplicate_urls)
             .field("dev_guild_id", &self.dev_guild_id)
             .field("register_commands", &self.register_commands)
             .field(
@@ -555,6 +597,15 @@ mod tests {
         env::set_var("SYSTEM_PROMPT", "   ");
         let cfg = Config::build().unwrap();
         assert_eq!(cfg.system_prompt, DEFAULT_SYSTEM_PROMPT);
+
+        // 5. MAX_QUEUE_TRACKS: 0 = unlimited; large values clamp to 500
+        env::set_var("MAX_QUEUE_TRACKS", "99999");
+        let c = Config::build().unwrap();
+        assert_eq!(c.max_queue_tracks, 500);
+        env::set_var("MAX_QUEUE_TRACKS", "0");
+        let c = Config::build().unwrap();
+        assert_eq!(c.max_queue_tracks, 0);
+        env::remove_var("MAX_QUEUE_TRACKS");
 
         // Cleanup
         env::remove_var("DISCORD_TOKEN");

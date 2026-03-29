@@ -200,6 +200,43 @@ pub fn play_embed(
     }
 }
 
+/// Embed for the `/play` message after pause/skip (live queue state).
+pub async fn play_controls_refresh_embed(
+    serenity_ctx: &serenity::Context,
+    guild_id: serenity::GuildId,
+) -> Option<serenity::CreateEmbed> {
+    let manager = songbird::get(serenity_ctx).await?;
+    let handler_lock = manager.get(guild_id)?;
+    let handler = handler_lock.lock().await;
+    let queue = handler.queue();
+    let all = queue.current_queue();
+    if all.is_empty() {
+        return None;
+    }
+    let h = all.first()?;
+    let d = h.data::<TrackUserData>();
+    let st = h.get_info().await.ok();
+    let pos = st.as_ref().map(|s| s.position);
+    let paused = st
+        .as_ref()
+        .map(|s| s.playing == PlayMode::Pause)
+        .unwrap_or(false);
+    let line = format_pos_dur(pos, d.duration);
+    let title = truncate(&d.title, 200);
+    let mut desc = format!("**{}**\n{}", title, line);
+    if paused {
+        desc.push_str("\n\n⏸️ **Paused**");
+    }
+    let mut e = serenity::CreateEmbed::new()
+        .title("🎶 Now playing")
+        .description(desc)
+        .color(0x57F287);
+    if let Some(ref t) = d.thumbnail {
+        e = e.image(t);
+    }
+    Some(e)
+}
+
 pub fn now_playing_embed(op: &MusicOp) -> Option<poise::serenity_prelude::CreateEmbed> {
     use poise::serenity_prelude::CreateEmbed;
     match op {
@@ -387,6 +424,7 @@ pub async fn music_leave(
         return Err("❌ I'm not in a voice channel".to_string());
     }
     info!("Leave: removing voice handler for guild {}", guild_id);
+    data.music.cancel_alone_leave_task(guild_id.get());
     data.music.clear_voice_hooks(guild_id.get());
     manager
         .remove(guild_id)
@@ -736,6 +774,7 @@ pub async fn music_stop_and_leave(
     let mut handler = handler_lock.lock().await;
     let queue = handler.queue();
     queue.stop();
+    data.music.cancel_alone_leave_task(guild_id.get());
     data.music.clear_voice_hooks(guild_id.get());
     handler.leave().await.map_err(|e| e.to_string())?;
     Ok(())

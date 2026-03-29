@@ -5,7 +5,14 @@ use tracing::info;
 /// Manage bot settings
 #[poise::command(
     slash_command,
-    subcommands("context", "memory", "system_prompt", "agent_timeout", "voice_timeout"),
+    subcommands(
+        "context",
+        "memory",
+        "system_prompt",
+        "agent_timeout",
+        "voice_timeout",
+        "voice_alone_timeout",
+    ),
     required_permissions = "MANAGE_GUILD",
     guild_only
 )]
@@ -195,6 +202,74 @@ pub async fn voice_timeout(
     let embed = serenity::CreateEmbed::new()
         .title("🔊 Voice Idle Timeout")
         .description(format!("**{}** seconds", timeout))
+        .footer(serenity::CreateEmbedFooter::new(source))
+        .color(0x5865F2);
+
+    ctx.send(poise::CreateReply::default().embed(embed)).await?;
+    Ok(())
+}
+
+/// View or update “leave when alone” delay (no human listeners in the bot’s voice channel)
+#[poise::command(slash_command)]
+pub async fn voice_alone_timeout(
+    ctx: Context<'_>,
+    #[description = "Seconds to wait before leaving when no humans remain (0 = off; omit to view)"]
+    #[min = 0]
+    #[max = 3600]
+    timeout_secs: Option<u64>,
+    #[description = "Reset to default config value"] reset: Option<bool>,
+) -> Result<(), Error> {
+    let guild_id = ctx.guild_id().ok_or("Must be run in a guild")?;
+    let guild_id_val = guild_id.get();
+
+    if reset.unwrap_or(false) {
+        ctx.data()
+            .db
+            .run_blocking(move |db| db.set_guild_voice_alone_timeout(guild_id_val, None))
+            .await?;
+        ctx.say("✅ Voice alone timeout reset to default.").await?;
+        return Ok(());
+    }
+
+    if let Some(timeout) = timeout_secs {
+        ctx.data()
+            .db
+            .run_blocking(move |db| db.set_guild_voice_alone_timeout(guild_id_val, Some(timeout)))
+            .await?;
+        let msg = if timeout == 0 {
+            "✅ Leave-when-alone is **disabled** for this server.".to_string()
+        } else {
+            format!(
+                "✅ Voice alone timeout set to **{}** seconds.",
+                timeout
+            )
+        };
+        ctx.say(msg).await?;
+        return Ok(());
+    }
+
+    let override_timeout = ctx
+        .data()
+        .db
+        .run_blocking(move |db| db.get_guild_voice_alone_timeout(guild_id_val))
+        .await?;
+    let effective = override_timeout.unwrap_or(ctx.data().config.voice_alone_timeout_secs);
+    let source = if override_timeout.is_some() {
+        "Server Override"
+    } else {
+        "Default Configuration"
+    };
+
+    let body = if effective == 0 {
+        "**Disabled** — bot will not auto-leave when the voice channel has no human listeners."
+            .to_string()
+    } else {
+        format!("**{}** seconds after the last human leaves.", effective)
+    };
+
+    let embed = serenity::CreateEmbed::new()
+        .title("🎧 Voice alone (empty listeners)")
+        .description(body)
         .footer(serenity::CreateEmbedFooter::new(source))
         .color(0x5865F2);
 

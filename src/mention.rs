@@ -29,51 +29,6 @@ pub async fn handle_mention(
         return Ok(());
     }
 
-    // Deterministic fast path: don't rely on LLM tool-calling for obvious play requests.
-    if let (Some(gid), Some(query)) = (
-        new_message.guild_id,
-        crate::play_intent::extract_direct_play_query(&prompt),
-    ) {
-        match crate::services::music_ops::music_play(
-            ctx,
-            data,
-            gid,
-            new_message.author.id,
-            query.clone(),
-            false,
-        )
-        .await
-        {
-            Ok(op) => {
-                let embed = crate::services::music_ops::play_embed(&op).ok_or_else(|| -> Error {
-                    "internal: play embed (fast route)".into()
-                })?;
-                new_message
-                    .channel_id
-                    .send_message(
-                        &ctx.http,
-                        serenity::CreateMessage::new()
-                            .reference_message((new_message.channel_id, new_message.id))
-                            .embed(embed),
-                    )
-                    .await?;
-                return Ok(());
-            }
-            Err(e) => {
-                new_message
-                    .channel_id
-                    .send_message(
-                        &ctx.http,
-                        serenity::CreateMessage::new()
-                            .reference_message((new_message.channel_id, new_message.id))
-                            .content(format!("❌ {}", e)),
-                    )
-                    .await?;
-                return Ok(());
-            }
-        }
-    }
-
     let guild_id = new_message.guild_id.map(|id| id.get());
     let system_prompt = if let Some(gid) = guild_id {
         data.db

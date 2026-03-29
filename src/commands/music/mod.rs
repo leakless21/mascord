@@ -14,7 +14,7 @@ use crate::services::music_ops::{
     build_queue_page, music_clear, music_join, music_leave, music_loop, music_move_track,
     music_now_playing, music_pause, music_play, music_remove, music_resume, music_shuffle,
     music_skip, music_skip_button, music_stop_and_leave, music_toggle_pause, music_volume,
-    now_playing_embed, play_embed, LoopModeArg,
+    now_playing_embed, play_controls_refresh_embed, play_embed, LoopModeArg,
 };
 use crate::{Context, Error};
 use poise::serenity_prelude::{
@@ -71,8 +71,94 @@ pub async fn play(
     .await
     .map_err(|e| -> Error { e.into() })?;
     let embed = play_embed(&op).ok_or_else(|| -> Error { "internal: play embed".into() })?;
-    ctx.send(poise::CreateReply::default().embed(embed)).await?;
+
+    let row = play_message_control_row();
+
+    let reply = ctx
+        .send(
+            poise::CreateReply::default()
+                .embed(embed)
+                .components(vec![row.clone()]),
+        )
+        .await?;
+    let message = reply.into_message().await?;
+
+    while let Some(interaction) = message
+        .await_component_interaction(ctx)
+        .timeout(std::time::Duration::from_secs(60 * 5))
+        .await
+    {
+        let id = interaction.data.custom_id.as_str();
+        if id == "stop" {
+            let _ = music_stop_and_leave(ctx.serenity_context(), ctx.data(), guild_id).await;
+            let _ = interaction
+                .create_response(
+                    ctx.serenity_context(),
+                    CreateInteractionResponse::UpdateMessage(
+                        CreateInteractionResponseMessage::new()
+                            .content("Stopped playback and left channel.")
+                            .components(vec![])
+                            .embeds(vec![]),
+                    ),
+                )
+                .await;
+            return Ok(());
+        }
+        if id == "pause" {
+            let _ = music_toggle_pause(ctx.serenity_context(), guild_id).await;
+        } else if id == "skip" {
+            let _ = music_skip_button(ctx.serenity_context(), guild_id).await;
+        } else {
+            continue;
+        }
+
+        if let Some(new_embed) =
+            play_controls_refresh_embed(ctx.serenity_context(), guild_id).await
+        {
+            let _ = interaction
+                .create_response(
+                    ctx.serenity_context(),
+                    CreateInteractionResponse::UpdateMessage(
+                        CreateInteractionResponseMessage::new()
+                            .embed(new_embed)
+                            .components(vec![row.clone()]),
+                    ),
+                )
+                .await;
+        } else {
+            let _ = interaction
+                .create_response(
+                    ctx.serenity_context(),
+                    CreateInteractionResponse::UpdateMessage(
+                        CreateInteractionResponseMessage::new()
+                            .content("📭 Queue is empty.")
+                            .components(vec![])
+                            .embeds(vec![]),
+                    ),
+                )
+                .await;
+            return Ok(());
+        }
+    }
+
     Ok(())
+}
+
+fn play_message_control_row() -> CreateActionRow {
+    CreateActionRow::Buttons(vec![
+        CreateButton::new("pause")
+            .emoji('⏯')
+            .label("Pause")
+            .style(ButtonStyle::Primary),
+        CreateButton::new("skip")
+            .emoji('⏭')
+            .label("Skip")
+            .style(ButtonStyle::Success),
+        CreateButton::new("stop")
+            .emoji('⏹')
+            .label("Stop")
+            .style(ButtonStyle::Danger),
+    ])
 }
 
 /// Skip the current song

@@ -27,7 +27,11 @@ Group=lkless
 WorkingDirectory=/home/lkless/server/mascord
 
 # Mascord loads .env from WorkingDirectory via dotenvy (no EnvironmentFile needed).
+# Use separate Environment= lines; commas do not split assignments (see systemd.exec(5)).
+# Set HEALTH_PORT=8088 in .env for /healthz and /readyz (Homepage siteMonitor); then restart the unit.
+# Default: debug for all crates (tracing). Override with `systemctl edit mascord` (dotenv will not override existing vars).
 Environment=REGISTER_COMMANDS=false
+Environment=RUST_LOG=debug
 
 ExecStartPre=/usr/bin/mkdir -p /home/lkless/server/mascord/data
 ExecStart=/home/lkless/server/mascord/target/release/mascord

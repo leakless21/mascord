@@ -22,6 +22,39 @@ pub struct TrackUserData {
 
 pub const MAX_PLAYLIST_ENTRIES: usize = 50;
 
+/// Current + waiting tracks (Songbird queue + active track if any).
+pub(crate) fn queued_track_count(handler: &songbird::Call) -> usize {
+    let q = handler.queue();
+    let mut n = q.current_queue().len();
+    if q.current().is_some() {
+        n += 1;
+    }
+    n
+}
+
+pub(crate) fn normalize_queue_url(s: &str) -> String {
+    s.trim().to_lowercase()
+}
+
+/// Whether `source` (normalized) is already the current or queued track.
+pub(crate) fn queue_contains_url_source(handler: &songbird::Call, source: &str) -> bool {
+    let needle = normalize_queue_url(source);
+    let q = handler.queue();
+    if let Some(cur) = q.current() {
+        let ud = cur.data::<TrackUserData>();
+        if normalize_queue_url(&ud.source) == needle {
+            return true;
+        }
+    }
+    for h in q.current_queue() {
+        let ud = h.data::<TrackUserData>();
+        if normalize_queue_url(&ud.source) == needle {
+            return true;
+        }
+    }
+    false
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct EnqueueOpts {
     /// When true and input is an HTTP(S) URL, expand YouTube playlists via yt-dlp.
@@ -309,6 +342,7 @@ pub async fn join_voice_channel_serenity(
                         guild_id,
                         manager: manager.clone(),
                         idle_timeout_secs,
+                        music: Arc::clone(music),
                     },
                 );
 
@@ -320,8 +354,32 @@ pub async fn join_voice_channel_serenity(
                         music: Arc::clone(music),
                         http_client,
                         youtube_cookies,
+                        max_queue_tracks: data.config.max_queue_tracks,
+                        voice_allow_duplicate_urls: data.config.voice_allow_duplicate_urls,
                     },
                 );
+
+                handler.add_global_event(
+                    songbird::Event::Track(songbird::TrackEvent::Error),
+                    crate::voice::events::TrackErrorHandler {
+                        guild_id,
+                        manager: manager.clone(),
+                    },
+                );
+
+                for core in [
+                    songbird::CoreEvent::DriverDisconnect,
+                    songbird::CoreEvent::DriverReconnect,
+                    songbird::CoreEvent::DriverConnect,
+                ] {
+                    handler.add_global_event(
+                        songbird::Event::Core(core),
+                        crate::voice::events::DriverLifecycleHandler {
+                            guild_id,
+                            music: Arc::clone(music),
+                        },
+                    );
+                }
             }
             Ok(channel_id)
         }
@@ -370,10 +428,32 @@ pub async fn enqueue_playback(
     let cookies_ref = cookies_path.as_ref();
     let vol = music.volume_for_guild(guild_id.get());
     let is_url = query.starts_with("http://") || query.starts_with("https://");
+    let max_q = data.config.max_queue_tracks;
+    let current_count = queued_track_count(&handler);
 
     if is_url && opts.expand_playlist {
         let queue_was_empty = handler.queue().is_empty();
-        let entries = fetch_playlist_entries(&query, cookies_ref).await?;
+        let mut entries = fetch_playlist_entries(&query, cookies_ref).await?;
+        if !data.config.voice_allow_duplicate_urls {
+            entries.retain(|(url, _, _)| !queue_contains_url_source(&handler, url));
+        }
+        if entries.is_empty() {
+            return Err("All playlist entries were already in the queue.".into());
+        }
+        if max_q > 0 {
+            let slots = max_q.saturating_sub(current_count);
+            if slots == 0 {
+                return Err(format!("Queue is full (max {} tracks).", max_q));
+            }
+            if entries.len() > slots {
+                warn!(
+                    "Playlist truncated: {} → {} tracks (queue capacity)",
+                    entries.len(),
+                    slots
+                );
+                entries.truncate(slots);
+            }
+        }
         let mut first_title_out = None;
         let mut count = 0usize;
         let ck = cookies_ok(cookies_ref);
@@ -425,6 +505,16 @@ pub async fn enqueue_playback(
         });
     }
 
+    if max_q > 0 && current_count + 1 > max_q {
+        return Err(format!("Queue is full (max {} tracks).", max_q));
+    }
+    if is_url
+        && !data.config.voice_allow_duplicate_urls
+        && queue_contains_url_source(&handler, &query)
+    {
+        return Err("That URL is already in the queue.".into());
+    }
+
     let verify_immediate = handler.queue().is_empty();
     let added_meta = enqueue_one(
         &mut handler,
@@ -450,6 +540,8 @@ pub async fn replay_queue_snapshot(
     music: &Arc<MusicState>,
     http_client: reqwest::Client,
     cookies_path: Option<String>,
+    max_queue_tracks: usize,
+    voice_allow_duplicate_urls: bool,
 ) -> Result<(), String> {
     let snapshot = music.queue_loop_snapshot(guild_id.get());
     if snapshot.is_empty() {
@@ -461,6 +553,19 @@ pub async fn replay_queue_snapshot(
     let mut handler = handler_lock.lock().await;
     let vol = music.volume_for_guild(guild_id.get());
     for (query, is_url) in snapshot {
+        if max_queue_tracks > 0 && queued_track_count(&handler) >= max_queue_tracks {
+            warn!(
+                "Queue loop replay stopped early in guild {} (queue full)",
+                guild_id
+            );
+            break;
+        }
+        if is_url
+            && !voice_allow_duplicate_urls
+            && queue_contains_url_source(&handler, &query)
+        {
+            continue;
+        }
         enqueue_one(
             &mut handler,
             http_client.clone(),
@@ -479,6 +584,14 @@ pub async fn replay_queue_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalize_queue_url_trims_and_lowercases() {
+        assert_eq!(
+            normalize_queue_url(" HTTPS://Example.com/X "),
+            "https://example.com/x"
+        );
+    }
 
     #[test]
     fn parses_flat_playlist_json_line() {

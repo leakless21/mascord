@@ -16,7 +16,10 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 async fn main() -> anyhow::Result<()> {
     // Load `.env` before tracing so `RUST_LOG` (and anything else read from the environment
     // by filters) applies. `Config::from_env()` also calls dotenv for tests/other entrypoints.
-    dotenvy::dotenv().ok();
+    // A parse error stops loading the rest of the file (e.g. unquoted spaces in values); warn loudly.
+    if let Err(e) = dotenvy::dotenv() {
+        eprintln!("mascord: WARNING: could not load .env: {e}");
+    }
 
     // Initialize logging with EnvFilter
     // Default: debug for mascord, info for key deps, warn for noisy HTTP internals
@@ -47,6 +50,14 @@ async fn main() -> anyhow::Result<()> {
     debug!("Loading configuration...");
     let mut config = Config::from_env()?;
     info!("Configuration loaded successfully");
+    if config.health_port > 0 {
+        info!(
+            "HTTP health server will bind on 0.0.0.0:{} (/healthz, /readyz)",
+            config.health_port
+        );
+    } else {
+        info!("HTTP health server disabled (HEALTH_PORT unset or 0; Homepage siteMonitor needs a listening port)");
+    }
 
     // Fetch dynamic application info (ID and Owners) only if APPLICATION_ID is missing
     let (app_id, owner_id) = if config.application_id != 0 {
@@ -144,6 +155,16 @@ async fn main() -> anyhow::Result<()> {
             ],
             event_handler: |ctx, event, _framework, data| {
                 Box::pin(async move {
+                    if let serenity::FullEvent::VoiceStateUpdate { old, new } = event {
+                        mascord::voice::follow::handle_voice_follow_move(
+                            ctx,
+                            data,
+                            old.as_ref(),
+                            new,
+                        )
+                        .await;
+                        mascord::voice::alone::handle_voice_alone_disconnect(ctx, data, new).await;
+                    }
                     if let serenity::FullEvent::Message { new_message } = event {
                         if !new_message.author.bot {
                             // Check if channel tracking is enabled

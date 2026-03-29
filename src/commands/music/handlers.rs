@@ -12,6 +12,8 @@ pub struct QueueLoopHandler {
     pub music: Arc<MusicState>,
     pub http_client: reqwest::Client,
     pub youtube_cookies: Option<String>,
+    pub max_queue_tracks: usize,
+    pub voice_allow_duplicate_urls: bool,
 }
 
 #[async_trait]
@@ -26,6 +28,8 @@ impl VoiceEventHandler for QueueLoopHandler {
         let music = self.music.clone();
         let http = self.http_client.clone();
         let cookies = self.youtube_cookies.clone();
+        let max_queue_tracks = self.max_queue_tracks;
+        let voice_allow_duplicate_urls = self.voice_allow_duplicate_urls;
 
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;
@@ -46,7 +50,17 @@ impl VoiceEventHandler for QueueLoopHandler {
                 music.queue_loop_snapshot(guild_id.get()).len(),
                 guild_id
             );
-            if let Err(e) = replay_queue_snapshot(&manager, guild_id, &music, http, cookies).await {
+            if let Err(e) = replay_queue_snapshot(
+                &manager,
+                guild_id,
+                &music,
+                http,
+                cookies,
+                max_queue_tracks,
+                voice_allow_duplicate_urls,
+            )
+            .await
+            {
                 warn!("Queue loop replay failed: {}", e);
             }
         });

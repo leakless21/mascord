@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS settings (
     context_retention INTEGER,
     system_prompt TEXT,
     agent_confirm_timeout_secs INTEGER,
-    voice_idle_timeout_secs INTEGER
+    voice_idle_timeout_secs INTEGER,
+    voice_alone_timeout_secs INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS channel_summaries (

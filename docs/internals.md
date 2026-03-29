@@ -84,7 +84,7 @@ This mirrors the usual **Claude Code–style split**: *live* memory work (here: 
 
 - Slash commands; reply + mention chat; embeds; markdown degraded for Discord.
 - LLM + layered memory above + RAG with hybrid search and channel controls.
-- Music: `yt-dlp`, queue, cookies optional, unified `music` tool (`action` mirrors slash commands) in guild, plus mention/reply direct play-intent fast route for reliability.
+- Music: `yt-dlp`, queue, cookies optional, unified `music` tool (`action` mirrors slash commands) in guild (mention/reply use the agent; no separate play-intent shortcut).
 - Reminders: NL schedules, SQLite, dispatch throttled.
 - Agent: built-in tools, confirmation for risky tools, iteration limits.
 - Owner-only admin; secrets via env; user data deletion path (`/memory delete_data`).
