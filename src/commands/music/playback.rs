@@ -5,7 +5,7 @@ use crate::Data;
 use poise::serenity_prelude as serenity;
 use serde::Deserialize;
 use songbird::input::{Compose, YoutubeDl};
-use songbird::tracks::Track;
+use songbird::tracks::{PlayMode, Track, TrackHandle};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -54,6 +54,9 @@ fn cookies_ok(cookies_path: Option<&String>) -> bool {
 
 fn ytdl_user_args(cookies_path: Option<&String>, no_playlist: bool) -> Vec<String> {
     let mut args = Vec::new();
+    // Prefer streams Symphonia can probe (WebM/Opus, MP4/AAC); reduces decode failures.
+    args.push("-f".to_string());
+    args.push("ba[ext=webm]/ba[ext=m4a]/ba/best".to_string());
     if no_playlist {
         args.push("--no-playlist".to_string());
     }
@@ -170,6 +173,51 @@ async fn preflight_source(
     }
 }
 
+/// After enqueue, Songbird may still fail while probing/decoding. Wait until the track
+/// starts playing or errors (only safe when this track will start immediately — e.g. queue was empty).
+async fn wait_for_immediate_track_play_or_error(
+    handle: &TrackHandle,
+    timeout: Duration,
+) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if tokio::time::Instant::now() > deadline {
+            return Err(
+                "Timed out waiting for audio to start; check yt-dlp, network, and codec support."
+                    .into(),
+            );
+        }
+        match handle.get_info().await {
+            Ok(state) => {
+                match &state.playing {
+                    PlayMode::Errored(e) => {
+                        return Err(format!(
+                            "Audio could not be played: {}. Try another URL or update yt-dlp.",
+                            e
+                        ));
+                    }
+                    PlayMode::Play => return Ok(()),
+                    PlayMode::End | PlayMode::Stop => {
+                        return Err(
+                            "Track stopped before playback started (decode or source error)."
+                                .into(),
+                        );
+                    }
+                    PlayMode::Pause => {}
+                    _ => {}
+                }
+            }
+            Err(e) => {
+                return Err(format!(
+                    "Lost audio track before playback started: {}",
+                    e
+                ));
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(90)).await;
+    }
+}
+
 fn meta_to_user_data(
     meta: songbird::input::AuxMetadata,
     source_label: String,
@@ -192,6 +240,7 @@ pub async fn enqueue_one(
     cookies_path: Option<String>,
     volume: f32,
     preflight: bool,
+    verify_immediate_decode: bool,
 ) -> Result<TrackUserData, String> {
     let cookies_ref = cookies_path.as_ref();
     let cookies_ok_flag = cookies_ok(cookies_ref);
@@ -208,7 +257,10 @@ pub async fn enqueue_one(
     let out = (*user_data).clone();
     let input: songbird::input::Input = source.into();
     let track = Track::new_with_data(input, user_data).volume(volume);
-    handler.enqueue(track).await;
+    let handle = handler.enqueue(track).await;
+    if verify_immediate_decode {
+        wait_for_immediate_track_play_or_error(&handle, Duration::from_secs(60)).await?;
+    }
     Ok(out)
 }
 
@@ -320,6 +372,7 @@ pub async fn enqueue_playback(
     let is_url = query.starts_with("http://") || query.starts_with("https://");
 
     if is_url && opts.expand_playlist {
+        let queue_was_empty = handler.queue().is_empty();
         let entries = fetch_playlist_entries(&query, cookies_ref).await?;
         let mut first_title_out = None;
         let mut count = 0usize;
@@ -353,7 +406,10 @@ pub async fn enqueue_playback(
                 input = s.into();
             }
             let track = Track::new_with_data(input, user_data.clone()).volume(vol);
-            handler.enqueue(track).await;
+            let h = handler.enqueue(track).await;
+            if queue_was_empty && i == 0 {
+                wait_for_immediate_track_play_or_error(&h, Duration::from_secs(60)).await?;
+            }
             count += 1;
             if first_title_out.is_none() {
                 first_title_out = Some(user_data.title.clone());
@@ -369,6 +425,7 @@ pub async fn enqueue_playback(
         });
     }
 
+    let verify_immediate = handler.queue().is_empty();
     let added_meta = enqueue_one(
         &mut handler,
         data.http_client.clone(),
@@ -377,6 +434,7 @@ pub async fn enqueue_playback(
         cookies_path,
         vol,
         true,
+        verify_immediate,
     )
     .await?;
     Ok(EnqueueSummary {
@@ -410,6 +468,7 @@ pub async fn replay_queue_snapshot(
             is_url,
             cookies_path.clone(),
             vol,
+            false,
             false,
         )
         .await?;

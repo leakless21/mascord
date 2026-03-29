@@ -133,7 +133,7 @@ impl SummarizationManager {
                 .await?;
         }
 
-        if let Ok(milestones) = self.extract_milestones(&summary).await {
+        if let Ok(milestones) = extract_milestones_for_summary(&self.llm, &summary).await {
             if !milestones.is_empty() {
                 let channel_id_str = channel_id.to_string();
                 if let Err(e) = self
@@ -247,17 +247,22 @@ Keep it accurate and preserve key decisions, constraints, and ongoing threads.\n
         Ok(current)
     }
 
-    async fn extract_milestones(&self, summary: &str) -> anyhow::Result<Vec<String>> {
-        const MAX_MILESTONES: usize = 6;
-        let prompt = format!(
-            "Extract up to {MAX_MILESTONES} durable milestones (decisions, commitments, constraints, or ongoing threads) \
+}
+
+/// Shared by rolling summarization and [`crate::services::autodream`] so milestones stay aligned with summary text.
+pub(crate) async fn extract_milestones_for_summary(
+    llm: &LlmClient,
+    summary: &str,
+) -> anyhow::Result<Vec<String>> {
+    const MAX_MILESTONES: usize = 6;
+    let prompt = format!(
+        "Extract up to {MAX_MILESTONES} durable milestones (decisions, commitments, constraints, or ongoing threads) \
 from the summary below. Respond with one per line prefixed with '- '. If there are none, respond with 'None'.\n\n\
 SUMMARY:\n{summary}\n\nMILESTONES:"
-        );
+    );
 
-        let raw = self.llm.completion(&prompt).await?;
-        Ok(parse_milestones(&raw, MAX_MILESTONES))
-    }
+    let raw = llm.completion(&prompt).await?;
+    Ok(parse_milestones(&raw, MAX_MILESTONES))
 }
 
 fn parse_sqlite_utc(ts: &str) -> Option<DateTime<Utc>> {

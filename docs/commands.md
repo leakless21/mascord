@@ -6,16 +6,16 @@ Discord’s slash UI lists options; this is a concise reference.
 
 | Area | Commands |
 |------|----------|
-| Chat / agent | `/about`, `/chat` |
+| Chat / agent | `/about`; agent via **mention** or **reply** (no `/chat` slash) |
 | Search / memory | `/search`, `/memory`, `/settings memory` (mods) |
 | Reminders | `/reminder` (`when` + `message`, or `action`: list / cancel / help) |
 | Music | `/join`, `/play`, `/skip`, `/leave`, `/queue`, `/nowplaying`, `/pause`, `/resume`, `/volume`, `/loop`, `/clear`, `/shuffle`, `/remove`, `/move_track` |
 | Settings | `/settings` — context, memory, `system_prompt`, `agent_timeout`, `voice_timeout` |
 | Owner | `/shutdown`, `/restart` (hidden; `OWNER_ID` only) |
 
-## Chat
+## Agent (mention / reply)
 
-**`/chat`** — Sends message + recent context to the LLM. Can use built-in tools (RAG, web if configured, `play_music` in a server voice channel). Direct play intents (`play ...`, `queue ...`, `put on ...`, `add to queue ...`) are fast-routed to the native music pipeline before LLM reasoning, so obvious music requests do not depend on model tool-calling reliability. Tools requiring confirmation use `AGENT_CONFIRM_TIMEOUT_SECS` / `/settings agent_timeout`.
+**Mention the bot** or **reply** to one of its messages — sends your message plus recent context to the LLM. Can use built-in tools (RAG, web if configured, `music` with `action` for voice playback/queue in a server). Direct play intents (`play ...`, `queue ...`, `put on ...`, `add to queue ...`) are fast-routed to the native music pipeline before LLM reasoning, so obvious music requests do not depend on model tool-calling reliability. Tools requiring confirmation use `AGENT_CONFIRM_TIMEOUT_SECS` / `/settings agent_timeout`.
 
 **`/search`** — Embedding search over stored history (hybrid + filters). Moderators use **`/settings memory`** for per-channel tracking, scope, purge.
 
@@ -50,7 +50,7 @@ Send/read messages, embed links, connect/speak for voice; `Manage Server` for so
 | Command not found | Register commands once, then `REGISTER_COMMANDS=false` |
 | Not in voice | Join VC; `/play` can auto-join |
 | LLM error | Check `LLAMA_URL`, model name, server up |
-| `play_music` returns an error from `/chat` | Be in a **server** (not DMs), in a **voice channel**; rebuild/restart the bot after updating; or use **`play …`** / **`play me …`** at the start of the message (fast route) or **`/play`** |
+| `music` tool returns an error when chatting | Be in a **server** (not DMs), in a **voice channel** for play/join; rebuild/restart the bot after updating; or use **`play …`** / **`play me …`** at the start of the mention/reply (fast route) or **`/play`** |
 | DB error | Restart; worst case remove `data/mascord.db` (data loss) |
 
-**Tips:** Reply to the bot to continue a thread. Say “no memory” for a one-off without user memory. Combine multi-step work in one `/chat`.
+**Tips:** Reply to the bot to continue a thread. Say “no memory” for a one-off without user memory. Combine multi-step work in one mention or reply.

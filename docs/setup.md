@@ -123,7 +123,7 @@ For “notify me when the service is down,” rely on **systemd** (e.g. `OnFailu
 | LLM errors | `curl` your `LLAMA_URL/models`; check `LLM_TIMEOUT_SECS`; read `journalctl -u mascord` for `LLM API error` / timeout lines |
 | Commands missing | Run registration once (above), then `REGISTER_COMMANDS=false` |
 | No message content | Message Content Intent + bot permissions |
-| `/chat` joins voice but does not queue audio | Use a direct `play ...` phrase or `/play`; check `yt-dlp` and `ffmpeg` availability |
+| Mention/reply joins voice but does not queue audio | Use a direct `play ...` phrase or `/play`; check `yt-dlp` and `ffmpeg` availability |
 
 ## See also
 

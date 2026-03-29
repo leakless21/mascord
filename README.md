@@ -12,7 +12,7 @@
   - **Long-Term**: On-demand retrieval and LLM-powered summarization of historical messages (RAG).
 - 🎵 **Interactive Music Player**: `yt-dlp` + Songbird with:
   - **Queue & controls**: Titles, durations, estimated total length, playlist import (optional), shuffle/clear/move/remove, volume, pause/resume, now playing, **track** and **queue** loop modes.
-  - **Agent tool `play_music`**: Same stack from `/chat` when used in a guild voice channel.
+  - **Agent tool `music`**: Same playback/queue stack as slash commands when you mention the bot or reply (`action` mirrors `/play`, `/skip`, `/volume`, etc.).
   - **Cookies**: Optional `YOUTUBE_COOKIES` for age-restricted or bot-check streams.
 - 🤖 **Agentic Core**: An autonomous agent trained to use internal and external tools (including native web search and URL fetch) to solve complex, multi-step requests.
 - ⚙️ **Configurable Settings**: Per-guild configuration for context limits, retention policies, and manual working-memory refreshes.
@@ -73,7 +73,7 @@ See **[docs/setup.md#troubleshooting](docs/setup.md#troubleshooting)**. Quick ch
 ### 🧬 The Memory System
 Mascord doesn't just "see" the last message. It manages context in three layers:
 1. **Passive Observation**: The bot reads all messages (even without mentions) to maintain a live history.
-2. **Conversation Context**: When you run `/chat`, it automatically pulls the last ~50 messages into the LLM's prompt.
+2. **Conversation Context**: When you **mention the bot** or **reply** to it, the agent automatically pulls the last ~50 messages into the LLM's prompt.
 3. **Working Memory**: For very long conversations, use `/settings context summarize`. This condenses the history into a "Working Memory" snippet that the bot always sees.
 4. **Historical Search**: Use `/search` or tell the bot to "search for X" to trigger the RAG engine over months of historical logs.
 
@@ -83,8 +83,8 @@ Mascord doesn't just "see" the last message. It manages context in three layers:
 - **Cookies**: If you encounter `403 Forbidden` or age-gate errors from YouTube, export browser cookies to a `cookies.txt` and set `YOUTUBE_COOKIES` in `.env`.
 
 ### 🤖 Multi-Step Tasks (Agent)
-Use **`/chat`** for requests that require multiple actions (including tools).
-*Example: "Search for the last time we talked about the API design, summarize it, and then play some lofi music."*
+**Mention the bot** or **reply** to its messages for requests that require multiple actions (including tools).
+*Example: "@Mascord Search for the last time we talked about the API design, summarize it, and then play some lofi music."*
 
 ## Future capabilities (roadmap)
 
@@ -99,7 +99,7 @@ Use **`/chat`** for requests that require multiple actions (including tools).
 | Command | Description |
 |---------|-------------|
 | `/about` | Show onboarding info, key commands, and deployment safety notes. |
-| `/chat` | Chat with the bot using current context memory. |
+| *(no slash)* | **Mention** the bot or **reply** to it to chat with the agent using current context memory. |
 | `/search` | Manually search through the RAG database. |
 | `/memory` | Manage global user memory (`enable`, `disable`, `show`, `remember`, `forget`, `delete_data`). |
 | `/reminder` | Set reminders directly (`when` + `message`) or manage via `action` (`list`, `cancel`, `help`). |

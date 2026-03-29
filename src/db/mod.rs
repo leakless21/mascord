@@ -280,6 +280,38 @@ impl Database {
             }
         }
 
+        if let Err(e) = conn.execute(
+            "ALTER TABLE user_memory ADD COLUMN autodream_at DATETIME",
+            [],
+        ) {
+            let msg = e.to_string();
+            if !msg.contains("duplicate column name") {
+                return Err(e).context("Failed to migrate: add user_memory.autodream_at column");
+            }
+        }
+
+        if let Err(e) = conn.execute(
+            "ALTER TABLE channel_summaries ADD COLUMN autodream_at DATETIME",
+            [],
+        ) {
+            let msg = e.to_string();
+            if !msg.contains("duplicate column name") {
+                return Err(e)
+                    .context("Failed to migrate: add channel_summaries.autodream_at column");
+            }
+        }
+
+        conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS autodream_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                line TEXT NOT NULL
+            );
+            ",
+        )
+        .context("Failed to migrate: autodream_log table")?;
+
         debug!("Database: Schema initialized successfully");
         Ok(())
     }
@@ -672,6 +704,21 @@ impl Database {
         Ok(results)
     }
 
+    /// Total messages stored in `messages` with `timestamp` within the last `hours` (cheap activity proxy for gating background LLM).
+    pub fn count_messages_in_window_hours(&self, hours: u64) -> anyhow::Result<usize> {
+        if hours == 0 {
+            return Ok(0);
+        }
+        let conn = self.lock_conn()?;
+        let modifier = format!("-{} hours", hours);
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM messages WHERE timestamp > datetime('now', ?1)",
+            [&modifier],
+            |row| row.get(0),
+        )?;
+        Ok(count.max(0) as usize)
+    }
+
     pub fn get_channels_with_activity(&self, lookback_days: i64) -> anyhow::Result<Vec<String>> {
         let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
@@ -856,6 +903,160 @@ impl Database {
             [],
         )?;
         Ok(count)
+    }
+
+    /// Users with opt-in memory enabled, non-empty summary, due for AutoDream (stale `autodream_at`).
+    pub fn list_user_ids_due_autodream(
+        &self,
+        cutoff_before: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<String>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT user_id FROM user_memory
+             WHERE enabled = 1 AND trim(summary) != ''
+               AND (autodream_at IS NULL OR autodream_at < ?1)
+             ORDER BY autodream_at ASC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map((cutoff_before, limit as i64), |row| row.get(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    /// Channel working-memory rows due for AutoDream.
+    /// `channel_activity_hours`: if `Some(h)` and `h > 0`, only channels with at least one message in that window.
+    pub fn list_channel_ids_due_autodream(
+        &self,
+        cutoff_before: &str,
+        limit: usize,
+        channel_activity_hours: Option<u64>,
+    ) -> anyhow::Result<Vec<String>> {
+        let conn = self.lock_conn()?;
+        if let Some(h) = channel_activity_hours {
+            if h > 0 {
+                let mod_h = format!("-{} hours", h);
+                let mut stmt = conn.prepare(
+                    "SELECT cs.channel_id FROM channel_summaries cs
+             WHERE trim(cs.summary) != ''
+               AND (cs.autodream_at IS NULL OR cs.autodream_at < ?1)
+               AND EXISTS (
+                 SELECT 1 FROM messages m
+                 WHERE m.channel_id = cs.channel_id
+                   AND m.timestamp > datetime('now', ?3)
+               )
+             ORDER BY cs.autodream_at ASC
+             LIMIT ?2",
+                )?;
+                let rows = stmt.query_map(
+                    rusqlite::params![cutoff_before, limit as i64, mod_h],
+                    |row| row.get(0),
+                )?;
+                let mut out = Vec::new();
+                for r in rows {
+                    out.push(r?);
+                }
+                return Ok(out);
+            }
+        }
+        let mut stmt = conn.prepare(
+            "SELECT channel_id FROM channel_summaries
+             WHERE trim(summary) != ''
+               AND (autodream_at IS NULL OR autodream_at < ?1)
+             ORDER BY autodream_at ASC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map((cutoff_before, limit as i64), |row| row.get(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    /// Apply AutoDream user consolidation only if `updated_at` still matches (avoids clobbering `/memory` or auto-update).
+    pub fn update_user_memory_autodream_cas(
+        &self,
+        user_id: &str,
+        summary: &str,
+        expires_at: Option<String>,
+        expected_updated_at: &str,
+    ) -> anyhow::Result<bool> {
+        let conn = self.lock_conn()?;
+        let n = conn.execute(
+            "UPDATE user_memory
+             SET summary = ?2,
+                 updated_at = CURRENT_TIMESTAMP,
+                 autodream_at = CURRENT_TIMESTAMP,
+                 expires_at = ?3
+             WHERE user_id = ?1 AND updated_at = ?4",
+            (user_id, summary, expires_at, expected_updated_at),
+        )?;
+        Ok(n > 0)
+    }
+
+    /// Mark user dream pass without changing summary text; fails if profile changed concurrently.
+    pub fn touch_user_autodream_at_cas(
+        &self,
+        user_id: &str,
+        expected_updated_at: &str,
+    ) -> anyhow::Result<bool> {
+        let conn = self.lock_conn()?;
+        let n = conn.execute(
+            "UPDATE user_memory SET autodream_at = CURRENT_TIMESTAMP WHERE user_id = ?1 AND updated_at = ?2",
+            (user_id, expected_updated_at),
+        )?;
+        Ok(n > 0)
+    }
+
+    /// Channel working memory: update consolidated text without bumping `updated_at` (rolling summary cursor stays valid).
+    pub fn update_channel_summary_autodream_cas(
+        &self,
+        channel_id: &str,
+        summary: &str,
+        expected_updated_at: &str,
+    ) -> anyhow::Result<bool> {
+        let conn = self.lock_conn()?;
+        let n = conn.execute(
+            "UPDATE channel_summaries
+             SET summary = ?2,
+                 autodream_at = CURRENT_TIMESTAMP
+             WHERE channel_id = ?1 AND updated_at = ?3",
+            (channel_id, summary, expected_updated_at),
+        )?;
+        Ok(n > 0)
+    }
+
+    pub fn touch_channel_autodream_at_cas(
+        &self,
+        channel_id: &str,
+        expected_updated_at: &str,
+    ) -> anyhow::Result<bool> {
+        let conn = self.lock_conn()?;
+        let n = conn.execute(
+            "UPDATE channel_summaries SET autodream_at = CURRENT_TIMESTAMP WHERE channel_id = ?1 AND updated_at = ?2",
+            (channel_id, expected_updated_at),
+        )?;
+        Ok(n > 0)
+    }
+
+    pub fn append_autodream_log(&self, line: &str) -> anyhow::Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "INSERT INTO autodream_log (line) VALUES (?1)",
+            [line],
+        )?;
+        // Keep log bounded (best-effort).
+        let _ = conn.execute(
+            "DELETE FROM autodream_log WHERE id NOT IN (
+                SELECT id FROM autodream_log ORDER BY id DESC LIMIT 500
+            )",
+            [],
+        );
+        Ok(())
     }
 
     // --- Reminders ---
@@ -1251,65 +1452,12 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
+    use crate::config::test_memory_config;
     use chrono::{Duration, Utc};
-
-    fn test_config() -> Config {
-        Config {
-            discord_token: "test".to_string(),
-            application_id: 0,
-            owner_id: Some(1),
-            llama_url: "test".to_string(),
-            llama_model: "test".to_string(),
-            llama_api_key: None,
-            embedding_url: "test".to_string(),
-            embedding_model: "test".to_string(),
-            embedding_api_key: None,
-            database_url: ":memory:".to_string(),
-            system_prompt: "test".to_string(),
-            max_context_messages: 10,
-            status_message: "test".to_string(),
-            youtube_cookies: None,
-            youtube_download_dir: "/tmp".to_string(),
-            youtube_cleanup_after_secs: 3600,
-            searxng_url: "http://localhost:8086".to_string(),
-            web_tool_timeout_secs: 20,
-            web_search_default_limit: 5,
-            web_fetch_max_chars: 8000,
-            jina_reader_base: "https://r.jina.ai".to_string(),
-            context_message_limit: 50,
-            context_retention_hours: 24,
-            llm_timeout_secs: 120,
-            embedding_timeout_secs: 30,
-            voice_idle_timeout_secs: 300,
-            dev_guild_id: None,
-            register_commands: false,
-            agent_confirm_timeout_secs: 300,
-            embedding_indexer_enabled: true,
-            embedding_indexer_batch_size: 25,
-            embedding_indexer_interval_secs: 30,
-            summarization_enabled: true,
-            summarization_interval_secs: 3600,
-            summarization_active_channels_lookback_days: 7,
-            summarization_initial_min_messages: 50,
-            summarization_trigger_new_messages: 150,
-            summarization_trigger_age_hours: 6,
-            summarization_trigger_min_new_messages: 20,
-            summarization_max_tokens: 1200,
-            summarization_refresh_weeks: 6,
-            summarization_refresh_days_lookback: 14,
-            reminder_poll_interval_secs: 30,
-            reminder_batch_size: 25,
-            health_port: 0,
-            job_leases_enabled: false,
-            job_lease_ttl_secs: 120,
-            long_term_retention_days: 365,
-        }
-    }
 
     #[test]
     fn test_db_init_and_save() {
-        let config = test_config();
+        let config = test_memory_config();
         let db = Database::new(&config).unwrap();
         db.execute_init().unwrap();
 
@@ -1327,7 +1475,7 @@ mod tests {
 
     #[test]
     fn test_db_settings() {
-        let config = test_config();
+        let config = test_memory_config();
         let db = Database::new(&config).unwrap();
         db.execute_init().unwrap();
 
@@ -1352,7 +1500,7 @@ mod tests {
 
     #[test]
     fn test_mark_message_indexed_excludes_from_backfill() {
-        let config = test_config();
+        let config = test_memory_config();
         let db = Database::new(&config).unwrap();
         db.execute_init().unwrap();
 
@@ -1380,7 +1528,7 @@ mod tests {
 
     #[test]
     fn test_channel_settings() {
-        let config = test_config();
+        let config = test_memory_config();
         let db = Database::new(&config).unwrap();
         db.execute_init().unwrap();
 
@@ -1423,7 +1571,7 @@ mod tests {
 
     #[test]
     fn test_rag_filtering_with_settings() {
-        let config = test_config();
+        let config = test_memory_config();
         let db = Database::new(&config).unwrap();
         db.execute_init().unwrap();
 
@@ -1463,7 +1611,7 @@ mod tests {
 
     #[test]
     fn test_replace_channel_milestones() {
-        let config = test_config();
+        let config = test_memory_config();
         let db = Database::new(&config).unwrap();
         db.execute_init().unwrap();
 
@@ -1486,7 +1634,7 @@ mod tests {
 
     #[test]
     fn test_db_cleanup() {
-        let config = test_config();
+        let config = test_memory_config();
         let db = Database::new(&config).unwrap();
         db.execute_init().unwrap();
 
@@ -1527,7 +1675,7 @@ mod tests {
 
     #[test]
     fn test_search_with_special_chars() {
-        let config = test_config();
+        let config = test_memory_config();
         let db = Database::new(&config).unwrap();
         db.execute_init().unwrap();
 
@@ -1548,7 +1696,7 @@ mod tests {
 
     #[test]
     fn test_vector_search_ranks_by_similarity() {
-        let config = test_config();
+        let config = test_memory_config();
         let db = Database::new(&config).unwrap();
         db.execute_init().unwrap();
 
@@ -1590,7 +1738,7 @@ mod tests {
 
     #[test]
     fn test_vector_search_prefers_recent_with_equal_similarity() {
-        let config = test_config();
+        let config = test_memory_config();
         let db = Database::new(&config).unwrap();
         db.execute_init().unwrap();
 
@@ -1630,7 +1778,7 @@ mod tests {
 
     #[test]
     fn test_vector_search_falls_back_to_keyword_when_no_embeddings_present() {
-        let config = test_config();
+        let config = test_memory_config();
         let db = Database::new(&config).unwrap();
         db.execute_init().unwrap();
 
@@ -1651,7 +1799,7 @@ mod tests {
 
     #[test]
     fn test_hybrid_search_merges_keyword_results() {
-        let config = test_config();
+        let config = test_memory_config();
         let db = Database::new(&config).unwrap();
         db.execute_init().unwrap();
 
@@ -1685,7 +1833,7 @@ mod tests {
 
     #[test]
     fn test_user_channel_cleanup_helpers() {
-        let config = test_config();
+        let config = test_memory_config();
         let db = Database::new(&config).unwrap();
         db.execute_init().unwrap();
 

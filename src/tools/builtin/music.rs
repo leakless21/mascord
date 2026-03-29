@@ -1,37 +1,253 @@
-use crate::commands::music::playback::{enqueue_playback, EnqueueOpts};
+//! Single LLM tool `music` — same capabilities as slash music commands via `action`.
+
 use crate::llm::confirm::DiscordToolContext;
+use crate::services::music_ops::{
+    music_clear, music_join, music_leave, music_loop, music_move_track, music_now_playing,
+    music_pause, music_play, music_queue_tool_value, music_remove, music_resume, music_shuffle,
+    music_skip, music_volume, LoopModeArg, MUSIC_AGENT_TOOL_NAME, MUSIC_HELP_TEXT,
+};
 use crate::tools::Tool;
-use anyhow::Context as _;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use tracing::{info, warn};
 
-pub struct PlayMusicTool;
+pub struct MusicTool;
+
+fn parse_action(params: &Value) -> Option<String> {
+    params
+        .get("action")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_ascii_lowercase())
+}
+
+/// Core routing for the `music` tool; used by [`MusicTool`] and tests.
+pub async fn dispatch_music_tool(
+    params: Value,
+    serenity_ctx: &poise::serenity_prelude::Context,
+    data: &crate::Data,
+    guild_id: Option<poise::serenity_prelude::GuildId>,
+    user_id: poise::serenity_prelude::UserId,
+) -> anyhow::Result<Value> {
+    let action = match parse_action(&params) {
+        Some(a) => a,
+        None => {
+            return Ok(json!({
+                "status": "error",
+                "message": "Missing or empty `action`. Use help for a list."
+            }));
+        }
+    };
+
+    let Some(guild_id) = guild_id else {
+        return Ok(json!({
+            "status": "error",
+            "message": "Music only works in a server (guild), not in DMs."
+        }));
+    };
+
+    match action.as_str() {
+        "help" => Ok(json!({
+            "status": "ok",
+            "help": MUSIC_HELP_TEXT
+        })),
+
+        "join" => match music_join(serenity_ctx, data, guild_id, user_id).await {
+            Ok(op) => Ok(op.to_tool_json()),
+            Err(e) => Ok(json!({"status": "error", "message": e})),
+        },
+
+        "play" => {
+            let query = params
+                .get("query")
+                .and_then(|q| q.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if query.is_empty() {
+                return Ok(json!({
+                    "status": "error",
+                    "message": "action=play requires non-empty `query`."
+                }));
+            }
+            let playlist = params
+                .get("playlist")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            match music_play(
+                serenity_ctx,
+                data,
+                guild_id,
+                user_id,
+                query,
+                playlist,
+            )
+            .await
+            {
+                Ok(op) => Ok(op.to_tool_json()),
+                Err(e) => Ok(json!({"status": "error", "message": e})),
+            }
+        }
+
+        "skip" => match music_skip(serenity_ctx, guild_id).await {
+            Ok(op) => Ok(op.to_tool_json()),
+            Err(e) => Ok(json!({"status": "error", "message": e})),
+        },
+
+        "leave" => match music_leave(serenity_ctx, data, guild_id).await {
+            Ok(op) => Ok(op.to_tool_json()),
+            Err(e) => Ok(json!({"status": "error", "message": e})),
+        },
+
+        "pause" => match music_pause(serenity_ctx, guild_id).await {
+            Ok(op) => Ok(op.to_tool_json()),
+            Err(e) => Ok(json!({"status": "error", "message": e})),
+        },
+
+        "resume" => match music_resume(serenity_ctx, guild_id).await {
+            Ok(op) => Ok(op.to_tool_json()),
+            Err(e) => Ok(json!({"status": "error", "message": e})),
+        },
+
+        "volume" => {
+            let percent = match params.get("percent").and_then(|v| v.as_u64()) {
+                Some(p) if p <= 200 => p as u8,
+                _ => {
+                    return Ok(json!({
+                        "status": "error",
+                        "message": "action=volume requires `percent` (integer 0–200)."
+                    }));
+                }
+            };
+            match music_volume(serenity_ctx, data, guild_id, percent).await {
+                Ok(op) => Ok(op.to_tool_json()),
+                Err(e) => Ok(json!({"status": "error", "message": e})),
+            }
+        }
+
+        "now_playing" => match music_now_playing(serenity_ctx, guild_id).await {
+            Ok(op) => Ok(op.to_tool_json()),
+            Err(e) => Ok(json!({"status": "error", "message": e})),
+        },
+
+        "loop" => {
+            let mode_s = params
+                .get("mode")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            let Some(mode) = LoopModeArg::parse(mode_s) else {
+                return Ok(json!({
+                    "status": "error",
+                    "message": "action=loop requires `mode`: off, track, or queue."
+                }));
+            };
+            match music_loop(serenity_ctx, data, guild_id, mode).await {
+                Ok(op) => Ok(op.to_tool_json()),
+                Err(e) => Ok(json!({"status": "error", "message": e})),
+            }
+        }
+
+        "clear" => match music_clear(serenity_ctx, guild_id).await {
+            Ok(op) => Ok(op.to_tool_json()),
+            Err(e) => Ok(json!({"status": "error", "message": e})),
+        },
+
+        "shuffle" => match music_shuffle(serenity_ctx, guild_id).await {
+            Ok(op) => Ok(op.to_tool_json()),
+            Err(e) => Ok(json!({"status": "error", "message": e})),
+        },
+
+        "remove" => {
+            let position = match params.get("position").and_then(|v| v.as_u64()) {
+                Some(p) if p >= 1 => p as u32,
+                _ => {
+                    return Ok(json!({
+                        "status": "error",
+                        "message": "action=remove requires `position` (integer ≥ 1)."
+                    }));
+                }
+            };
+            match music_remove(serenity_ctx, guild_id, position).await {
+                Ok(op) => Ok(op.to_tool_json()),
+                Err(e) => Ok(json!({"status": "error", "message": e})),
+            }
+        }
+
+        "move_track" => {
+            let from = match params.get("from").and_then(|v| v.as_u64()) {
+                Some(p) if p >= 1 => p as u32,
+                _ => {
+                    return Ok(json!({
+                        "status": "error",
+                        "message": "action=move_track requires `from` (integer ≥ 1)."
+                    }));
+                }
+            };
+            let to = match params.get("to").and_then(|v| v.as_u64()) {
+                Some(p) if p >= 1 => p as u32,
+                _ => {
+                    return Ok(json!({
+                        "status": "error",
+                        "message": "action=move_track requires `to` (integer ≥ 1)."
+                    }));
+                }
+            };
+            match music_move_track(serenity_ctx, guild_id, from, to).await {
+                Ok(op) => Ok(op.to_tool_json()),
+                Err(e) => Ok(json!({"status": "error", "message": e})),
+            }
+        }
+
+        "queue" => match music_queue_tool_value(serenity_ctx, data, guild_id).await {
+            Ok(v) => Ok(json!({"status": "ok", "action": "queue", "queue": v})),
+            Err(e) => Ok(json!({"status": "error", "message": e})),
+        },
+
+        _ => Ok(json!({
+            "status": "error",
+            "message": format!(
+                "Unknown action `{action}`. Use help for a list."
+            )
+        })),
+    }
+}
 
 #[async_trait]
-impl Tool for PlayMusicTool {
+impl Tool for MusicTool {
     fn name(&self) -> &str {
-        "play_music"
+        MUSIC_AGENT_TOOL_NAME
     }
+
     fn description(&self) -> &str {
-        "Queue music from a YouTube search, video URL, or other yt-dlp-supported URL. The user must be in a voice channel in a server."
+        "Control music in a voice channel: same actions as slash commands (join, play, skip, leave, pause, resume, volume, now_playing, loop, clear, shuffle, remove, move_track, queue, help). User must be in a guild; for play/join typically in a voice channel. Use action=help for parameters."
     }
+
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "query": {
+                "action": {
                     "type": "string",
-                    "description": "Song title / search query or media URL"
-                }
+                    "description": "join | play | skip | leave | pause | resume | volume | now_playing | loop | clear | shuffle | remove | move_track | queue | help"
+                },
+                "query": { "type": "string", "description": "Required for play: search or URL" },
+                "playlist": { "type": "boolean", "description": "Optional for play: expand playlists" },
+                "percent": { "type": "integer", "description": "Required for volume: 0–200" },
+                "mode": { "type": "string", "description": "Required for loop: off | track | queue" },
+                "position": { "type": "integer", "description": "Required for remove: 1 = now playing" },
+                "from": { "type": "integer", "description": "Required for move_track" },
+                "to": { "type": "integer", "description": "Required for move_track" }
             },
-            "required": ["query"]
+            "required": ["action"]
         })
     }
+
     async fn execute(&self, _params: Value) -> anyhow::Result<Value> {
         Ok(json!({
             "status": "error",
-            "message": "play_music requires a Discord context; use /chat in a server with the bot."
+            "message": "music requires Discord context; mention the bot or reply in a server channel."
         }))
     }
 
@@ -41,65 +257,29 @@ impl Tool for PlayMusicTool {
         dctx: Option<&DiscordToolContext<'_>>,
     ) -> anyhow::Result<Value> {
         let Some(ctx) = dctx else {
-            warn!("play_music: execute_with_discord called without Discord context (agent must use run_with_confirmation)");
+            warn!("music: execute_with_discord called without Discord context");
             return self.execute(params).await;
         };
-        let Some(guild_id) = ctx.guild_id else {
-            return Ok(json!({
-                "status": "error",
-                "message": "Music only works in a server (guild), not in DMs."
-            }));
-        };
-        let query = params
-            .get("query")
-            .and_then(|q| q.as_str())
-            .context("Missing or invalid `query`")?
-            .trim()
-            .to_string();
-        if query.is_empty() {
-            return Ok(json!({"status": "error", "message": "Query was empty."}));
-        }
-        info!(
-            guild = guild_id.get(),
-            user = ctx.user_id.get(),
-            %query,
-            "play_music: enqueue_playback"
-        );
-        match enqueue_playback(
+        info!(user = ctx.user_id.get(), "music tool dispatch");
+        dispatch_music_tool(
+            params,
             ctx.serenity_ctx,
             ctx.data,
-            guild_id,
+            ctx.guild_id,
             ctx.user_id,
-            query.clone(),
-            &ctx.data.music,
-            EnqueueOpts {
-                expand_playlist: false,
-                skip_voice_check: false,
-            },
         )
         .await
-        {
-            Ok(s) => {
-                info!(
-                    guild = guild_id.get(),
-                    added = s.added,
-                    title = ?s.first_title,
-                    "play_music: queued OK"
-                );
-                Ok(json!({
-                    "status": "ok",
-                    "added": s.added,
-                    "title": s.first_title,
-                    "query": query
-                }))
-            }
-            Err(e) => {
-                warn!(guild = guild_id.get(), %query, error = %e, "play_music: enqueue failed");
-                Ok(json!({
-                    "status": "error",
-                    "message": e
-                }))
-            }
-        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::music_ops;
+
+    #[test]
+    fn tool_name_matches_ops() {
+        let t = MusicTool;
+        assert_eq!(t.name(), music_ops::MUSIC_AGENT_TOOL_NAME);
     }
 }

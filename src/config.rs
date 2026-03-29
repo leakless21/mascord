@@ -54,6 +54,9 @@ pub struct Config {
     pub summarization_max_tokens: usize,
     pub summarization_refresh_weeks: i64,
     pub summarization_refresh_days_lookback: i64,
+    /// Skip each summarization tick if fewer than this many DB messages in the gate window (`0` = no gate).
+    pub summarization_activity_gate_hours: u64,
+    pub summarization_activity_min_messages: usize,
 
     // Reminder scheduler settings
     pub reminder_poll_interval_secs: u64,
@@ -64,13 +67,95 @@ pub struct Config {
 
     // Long-term retention (RAG store)
     pub long_term_retention_days: u64,
+
+    /// Background memory consolidation (AutoDream): LLM pass over user + optional channel summaries.
+    pub autodream_enabled: bool,
+    pub autodream_interval_secs: u64,
+    pub autodream_min_hours: i64,
+    pub autodream_max_users_per_cycle: usize,
+    pub autodream_channel_summaries: bool,
+    pub autodream_max_channels_per_cycle: usize,
+    pub autodream_user_max_chars: usize,
+    /// Skip each AutoDream cycle if fewer than this many DB messages in the gate window (`0` = no gate).
+    pub autodream_activity_gate_hours: u64,
+    pub autodream_activity_min_messages: usize,
+    /// Only consolidate channel summaries that had ≥1 message in this many hours (`0` = do not filter by channel activity).
+    pub autodream_channel_activity_hours: u64,
 }
 
-/// Default when `SYSTEM_PROMPT` is unset. Keep short: role, tone, when to use tools (OpenAI-style: instructions first, minimal overlap with injected context).
+/// `:memory:` SQLite and safe defaults for unit tests (`db`, reminders, tools).
+#[cfg(test)]
+pub(crate) fn test_memory_config() -> Config {
+    Config {
+        discord_token: "test".to_string(),
+        application_id: 0,
+        owner_id: Some(1),
+        llama_url: "test".to_string(),
+        llama_model: "test".to_string(),
+        llama_api_key: None,
+        embedding_url: "test".to_string(),
+        embedding_model: "test".to_string(),
+        embedding_api_key: None,
+        database_url: ":memory:".to_string(),
+        system_prompt: "test".to_string(),
+        max_context_messages: 10,
+        status_message: "test".to_string(),
+        youtube_cookies: None,
+        youtube_download_dir: "/tmp".to_string(),
+        youtube_cleanup_after_secs: 3600,
+        searxng_url: "http://localhost:8086".to_string(),
+        web_tool_timeout_secs: 20,
+        web_search_default_limit: 5,
+        web_fetch_max_chars: 8000,
+        jina_reader_base: "https://r.jina.ai".to_string(),
+        context_message_limit: 50,
+        context_retention_hours: 24,
+        llm_timeout_secs: 120,
+        embedding_timeout_secs: 30,
+        voice_idle_timeout_secs: 300,
+        dev_guild_id: None,
+        register_commands: false,
+        agent_confirm_timeout_secs: 300,
+        embedding_indexer_enabled: true,
+        embedding_indexer_batch_size: 25,
+        embedding_indexer_interval_secs: 30,
+        summarization_enabled: true,
+        summarization_interval_secs: 3600,
+        summarization_active_channels_lookback_days: 7,
+        summarization_initial_min_messages: 50,
+        summarization_trigger_new_messages: 150,
+        summarization_trigger_age_hours: 6,
+        summarization_trigger_min_new_messages: 20,
+        summarization_max_tokens: 1200,
+        summarization_refresh_weeks: 6,
+        summarization_refresh_days_lookback: 14,
+        summarization_activity_gate_hours: 48,
+        summarization_activity_min_messages: 5,
+        reminder_poll_interval_secs: 30,
+        reminder_batch_size: 25,
+        health_port: 0,
+        job_leases_enabled: false,
+        job_lease_ttl_secs: 120,
+        long_term_retention_days: 365,
+        autodream_enabled: true,
+        autodream_interval_secs: 86400,
+        autodream_min_hours: 24,
+        autodream_max_users_per_cycle: 8,
+        autodream_channel_summaries: true,
+        autodream_max_channels_per_cycle: 4,
+        autodream_user_max_chars: 1200,
+        autodream_activity_gate_hours: 48,
+        autodream_activity_min_messages: 5,
+        autodream_channel_activity_hours: 72,
+    }
+}
+
+/// Default when `SYSTEM_PROMPT` is unset.
+/// Style follows common agent prompts: role + tone + *when* to use tools; tool definitions carry *which* tools and their parameters (avoid duplicating schemas here).
 const DEFAULT_SYSTEM_PROMPT: &str = "You are Mascord, a Discord assistant. \
-Reply clearly and briefly; a little wit is fine. \
-Use tools when the user wants something done (music, search, web, fetch, memory tools). \
-For explanations, opinions, or troubleshooting without needing those actions, answer in text only.";
+Be clear and concise; a little snark and dry wit are on-brand—clever, never cruel or punching down. \
+When the user wants something you can do via the available tools, call the right tool and pass arguments that match its schema—use only names and parameters from the tool list, never invented tools. \
+For questions, opinions, or chat that does not require an action, answer in plain text.";
 
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
@@ -100,7 +185,10 @@ impl Config {
             database_url: env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "data/mascord.db".to_string()),
             system_prompt: env::var("SYSTEM_PROMPT")
-                .unwrap_or_else(|_| DEFAULT_SYSTEM_PROMPT.to_string()),
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| DEFAULT_SYSTEM_PROMPT.to_string()),
             max_context_messages: env::var("MAX_CONTEXT_MESSAGES")
                 .unwrap_or_else(|_| "10".to_string())
                 .parse()
@@ -217,6 +305,14 @@ impl Config {
                 .unwrap_or_else(|_| "14".to_string())
                 .parse()
                 .unwrap_or(14),
+            summarization_activity_gate_hours: env::var("SUMMARIZATION_ACTIVITY_GATE_HOURS")
+                .unwrap_or_else(|_| "48".to_string())
+                .parse()
+                .unwrap_or(48),
+            summarization_activity_min_messages: env::var("SUMMARIZATION_ACTIVITY_MIN_MESSAGES")
+                .unwrap_or_else(|_| "5".to_string())
+                .parse()
+                .unwrap_or(5),
             reminder_poll_interval_secs: env::var("REMINDER_POLL_INTERVAL_SECS")
                 .unwrap_or_else(|_| "30".to_string())
                 .parse()
@@ -241,6 +337,46 @@ impl Config {
                 .unwrap_or_else(|_| "365".to_string())
                 .parse()
                 .unwrap_or(365),
+            autodream_enabled: env::var("AUTODREAM_ENABLED")
+                .unwrap_or_else(|_| "true".to_string())
+                .parse()
+                .unwrap_or(true),
+            autodream_interval_secs: env::var("AUTODREAM_INTERVAL_SECS")
+                .unwrap_or_else(|_| "86400".to_string())
+                .parse()
+                .unwrap_or(86400),
+            autodream_min_hours: env::var("AUTODREAM_MIN_HOURS")
+                .unwrap_or_else(|_| "24".to_string())
+                .parse()
+                .unwrap_or(24),
+            autodream_max_users_per_cycle: env::var("AUTODREAM_MAX_USERS_PER_CYCLE")
+                .unwrap_or_else(|_| "8".to_string())
+                .parse()
+                .unwrap_or(8),
+            autodream_channel_summaries: env::var("AUTODREAM_CHANNEL_SUMMARIES")
+                .unwrap_or_else(|_| "true".to_string())
+                .parse()
+                .unwrap_or(true),
+            autodream_max_channels_per_cycle: env::var("AUTODREAM_MAX_CHANNELS_PER_CYCLE")
+                .unwrap_or_else(|_| "4".to_string())
+                .parse()
+                .unwrap_or(4),
+            autodream_user_max_chars: env::var("AUTODREAM_USER_MAX_CHARS")
+                .unwrap_or_else(|_| "1200".to_string())
+                .parse()
+                .unwrap_or(1200),
+            autodream_activity_gate_hours: env::var("AUTODREAM_ACTIVITY_GATE_HOURS")
+                .unwrap_or_else(|_| "48".to_string())
+                .parse()
+                .unwrap_or(48),
+            autodream_activity_min_messages: env::var("AUTODREAM_ACTIVITY_MIN_MESSAGES")
+                .unwrap_or_else(|_| "5".to_string())
+                .parse()
+                .unwrap_or(5),
+            autodream_channel_activity_hours: env::var("AUTODREAM_CHANNEL_ACTIVITY_HOURS")
+                .unwrap_or_else(|_| "72".to_string())
+                .parse()
+                .unwrap_or(72),
         })
     }
 }
@@ -331,6 +467,14 @@ impl std::fmt::Debug for Config {
                 &self.summarization_refresh_days_lookback,
             )
             .field(
+                "summarization_activity_gate_hours",
+                &self.summarization_activity_gate_hours,
+            )
+            .field(
+                "summarization_activity_min_messages",
+                &self.summarization_activity_min_messages,
+            )
+            .field(
                 "reminder_poll_interval_secs",
                 &self.reminder_poll_interval_secs,
             )
@@ -339,6 +483,34 @@ impl std::fmt::Debug for Config {
             .field("job_leases_enabled", &self.job_leases_enabled)
             .field("job_lease_ttl_secs", &self.job_lease_ttl_secs)
             .field("long_term_retention_days", &self.long_term_retention_days)
+            .field("autodream_enabled", &self.autodream_enabled)
+            .field("autodream_interval_secs", &self.autodream_interval_secs)
+            .field("autodream_min_hours", &self.autodream_min_hours)
+            .field(
+                "autodream_max_users_per_cycle",
+                &self.autodream_max_users_per_cycle,
+            )
+            .field(
+                "autodream_channel_summaries",
+                &self.autodream_channel_summaries,
+            )
+            .field(
+                "autodream_max_channels_per_cycle",
+                &self.autodream_max_channels_per_cycle,
+            )
+            .field("autodream_user_max_chars", &self.autodream_user_max_chars)
+            .field(
+                "autodream_activity_gate_hours",
+                &self.autodream_activity_gate_hours,
+            )
+            .field(
+                "autodream_activity_min_messages",
+                &self.autodream_activity_min_messages,
+            )
+            .field(
+                "autodream_channel_activity_hours",
+                &self.autodream_channel_activity_hours,
+            )
             .finish()
     }
 }
@@ -379,9 +551,15 @@ mod tests {
         assert!(!debug_output.contains("secret_api_key"));
         assert!(debug_output.contains("[REDACTED]"));
 
+        // 4. Empty SYSTEM_PROMPT falls back to default (avoid blank bot)
+        env::set_var("SYSTEM_PROMPT", "   ");
+        let cfg = Config::build().unwrap();
+        assert_eq!(cfg.system_prompt, DEFAULT_SYSTEM_PROMPT);
+
         // Cleanup
         env::remove_var("DISCORD_TOKEN");
         env::remove_var("APPLICATION_ID");
         env::remove_var("LLAMA_API_KEY");
+        env::remove_var("SYSTEM_PROMPT");
     }
 }

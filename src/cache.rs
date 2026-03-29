@@ -132,6 +132,22 @@ impl MessageCache {
         expired_set.len()
     }
 
+    /// Messages in the LRU whose timestamps fall within the last `hours` (used with DB counts for background activity gates).
+    ///
+    /// This includes assistant/bot lines kept for short-term context (e.g. synthetic replies), which may not exist in `messages`.
+    pub fn count_messages_in_window_hours(&self, hours: u64) -> usize {
+        if hours == 0 {
+            return 0;
+        }
+        let cutoff = Utc::now() - Duration::hours(hours as i64);
+        let cutoff_unix = cutoff.timestamp();
+        let cache = self.lock_cache();
+        cache
+            .iter()
+            .filter(|(_, msg)| msg.timestamp.unix_timestamp() >= cutoff_unix)
+            .count()
+    }
+
     /// Remove cached messages authored by a specific user.
     /// Returns the number of messages removed.
     pub fn purge_user_messages(&self, user_id: u64) -> usize {
@@ -246,6 +262,19 @@ mod tests {
         // Non-existent channel
         let empty = cache.get_channel_history(ChannelId::new(999), 10);
         assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn test_count_messages_in_window_hours() {
+        let cache = MessageCache::new(100);
+        let mut old = mock_message(1, 100);
+        old.timestamp = Timestamp::from_unix_timestamp(1).unwrap();
+        cache.insert(old);
+        let mut new = mock_message(2, 100);
+        new.timestamp = Timestamp::now();
+        cache.insert(new);
+        assert_eq!(cache.count_messages_in_window_hours(0), 0);
+        assert_eq!(cache.count_messages_in_window_hours(24), 1);
     }
 
     #[test]

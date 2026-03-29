@@ -27,6 +27,20 @@ impl Agent {
         })
     }
 
+    /// Tool results after the latest user message mean this user turn already invoked tools;
+    /// do not force another required-tool round (avoids loops when the model replies in text).
+    fn has_tool_results_since_latest_user(messages: &[ChatCompletionRequestMessage]) -> bool {
+        let Some(idx) = messages
+            .iter()
+            .rposition(|m| matches!(m, ReqMsg::User(_)))
+        else {
+            return false;
+        };
+        messages[idx + 1..]
+            .iter()
+            .any(|m| matches!(m, ReqMsg::Tool(_)))
+    }
+
     fn has_action_intent(text: &str) -> bool {
         let t = text.to_lowercase();
         [
@@ -44,11 +58,30 @@ impl Agent {
         .any(|p| t.contains(p))
     }
 
+    fn has_reminder_intent(text: &str) -> bool {
+        let t = text.to_lowercase();
+        [
+            "remind me",
+            "set a reminder",
+            "reminder for",
+            "reminder to ",
+            "ping me in ",
+            "remind me in ",
+            "remind me at ",
+            "schedule a reminder",
+        ]
+        .iter()
+        .any(|p| t.contains(p))
+    }
+
     fn should_retry_required_tool_call(messages: &[ChatCompletionRequestMessage]) -> bool {
+        if Self::has_tool_results_since_latest_user(messages) {
+            return false;
+        }
         let Some(user_text) = Self::latest_user_text(messages) else {
             return false;
         };
-        Self::has_action_intent(&user_text)
+        Self::has_action_intent(&user_text) || Self::has_reminder_intent(&user_text)
     }
 
     pub fn new(data: &Data) -> Self {
@@ -159,7 +192,7 @@ impl Agent {
                 && Self::should_retry_required_tool_call(&messages)
             {
                 return Err(anyhow::anyhow!(
-                    "The model did not invoke a tool for an explicit action request (even after required-tool retry). Try /play or a direct \"play …\" phrase, or check LLM_URL / model availability."
+                    "The model did not invoke a tool for an explicit action request (even after required-tool retry). For music try /play, the `music` tool (action play/skip/volume/…), or a direct \"play …\" phrase; for reminders use /reminder or the `reminder` tool (action set/list/cancel). Also check LLM_URL / model availability."
                 ));
             }
 

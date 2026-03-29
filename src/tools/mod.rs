@@ -16,7 +16,7 @@ pub trait Tool: Send + Sync {
     async fn execute(&self, params: Value) -> anyhow::Result<Value>;
 
     /// When the agent runs with [`crate::llm::confirm::ToolConfirmationContext`], this is called with
-    /// guild/channel/user and [`crate::Data`] (e.g. [`crate::tools::builtin::music::PlayMusicTool`]).
+    /// guild/channel/user and [`crate::Data`] (e.g. [`crate::tools::builtin::music::MusicTool`]).
     async fn execute_with_discord(
         &self,
         params: Value,

@@ -13,7 +13,7 @@ pub struct ToolConfirmationContext<'a> {
     pub timeout: Duration,
 }
 
-/// Passed to tools when the agent has Discord context (e.g. `/play` via `play_music`).
+/// Passed to tools when the agent has Discord context (e.g. `/play` via the `music` tool).
 pub struct DiscordToolContext<'a> {
     pub serenity_ctx: &'a serenity::Context,
     pub guild_id: Option<serenity::GuildId>,

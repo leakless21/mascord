@@ -262,7 +262,8 @@ fn parse_sqlite_utc(ts: &str) -> Option<DateTime<Utc>> {
     Some(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
 }
 
-fn normalize_memory(raw: &str, max_chars: usize) -> String {
+/// Shared by [`crate::services::autodream`] for consolidation output (NO_UPDATE, bullets, cap).
+pub(crate) fn normalize_memory(raw: &str, max_chars: usize) -> String {
     let mut text = raw.trim().replace('\r', "");
     if text.is_empty() {
         return String::new();

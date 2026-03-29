@@ -5,6 +5,9 @@ use thiserror::Error;
 const SQLITE_UTC_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
 pub const REMINDER_MIN_LEAD_SECS: i64 = 60;
 pub const REMINDER_MAX_LEAD_DAYS: i64 = 30;
+/// Shared with `/reminder` slash command and LLM tools.
+pub const MAX_REMINDER_MESSAGE_CHARS: usize = 1500;
+pub const MAX_LIST_RESULTS: usize = 20;
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ReminderScheduleError {

@@ -10,7 +10,7 @@ pub async fn about(ctx: Context<'_>) -> Result<(), Error> {
         )
         .field(
             "Core Commands",
-            "`/chat`, `/search`, `/memory`, `/reminder`, `/settings`, `/play`, `/queue`",
+            "Mention/reply for the agent; `/search`, `/memory`, `/reminder`, `/settings`, `/play`, `/queue`",
             false,
         )
         .field(

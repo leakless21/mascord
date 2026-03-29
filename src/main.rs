@@ -1,5 +1,5 @@
 use anyhow::Context as AnyhowContext;
-use mascord::commands::{about, admin, chat, memory, music, rag, reminder, settings};
+use mascord::commands::{about, admin, memory, music, rag, reminder, settings};
 use mascord::{config::Config, Data};
 use poise::serenity_prelude as serenity;
 use serenity::all::Http;
@@ -14,6 +14,10 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Load `.env` before tracing so `RUST_LOG` (and anything else read from the environment
+    // by filters) applies. `Config::from_env()` also calls dotenv for tests/other entrypoints.
+    dotenvy::dotenv().ok();
+
     // Initialize logging with EnvFilter
     // Default: debug for mascord, info for key deps, warn for noisy HTTP internals
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
@@ -117,7 +121,6 @@ async fn main() -> anyhow::Result<()> {
         .options(poise::FrameworkOptions {
             commands: vec![
                 about::about(),
-                chat::chat(),
                 memory::memory(),
                 rag::search(),
                 music::join(),
@@ -233,6 +236,55 @@ async fn main() -> anyhow::Result<()> {
                                     .ephemeral(true)
                             ).await;
                         }
+                        poise::FrameworkError::ArgumentParse { error, ctx, .. } => {
+                            let detail = error.to_string();
+                            tracing::error!(
+                                "Slash argument parse/deserialize failed for `{}`: {}",
+                                ctx.command().qualified_name,
+                                detail
+                            );
+                            let hint = if detail.contains("deserialize")
+                                || detail.contains("missing")
+                                || detail.contains("Required")
+                            {
+                                format!(
+                                    "❌ Discord sent options this build doesn't recognize (`{}`).\n\
+                                     **Fix:** set `REGISTER_COMMANDS=true` once (or run `./scripts/register-commands.sh`) so slash commands match the bot, then try again.",
+                                    detail
+                                )
+                            } else {
+                                format!("❌ {}", detail)
+                            };
+                            let _ = ctx
+                                .send(poise::CreateReply::default().content(hint).ephemeral(true))
+                                .await;
+                        }
+                        poise::FrameworkError::CommandStructureMismatch {
+                            ctx,
+                            description,
+                            ..
+                        } => {
+                            tracing::error!(
+                                "Slash command structure mismatch for `/{}`: {}",
+                                ctx.command.name,
+                                description
+                            );
+                            let _ = ctx
+                                .send(
+                                    poise::CreateReply::default()
+                                        .content(format!(
+                                            "❌ This slash command does not match Discord's cached definition ({description}).\n\
+                                             **Fix:** ask the bot owner to re-run slash registration (e.g. `./scripts/register-commands.sh {}` from the mascord repo), then try again.\n\
+                                             If you use a **bridge** or unusual client, use the official Discord app and fill the **query** option before sending.",
+                                            ctx.interaction
+                                                .guild_id
+                                                .map(|g| g.get().to_string())
+                                                .unwrap_or_else(|| "--global".into())
+                                        ))
+                                        .ephemeral(true),
+                                )
+                                .await;
+                        }
                         other => {
                             let _ = poise::builtins::on_error(other).await;
                         }
@@ -257,9 +309,33 @@ async fn main() -> anyhow::Result<()> {
                             &framework.options().commands,
                             serenity::GuildId::new(guild_id)
                         ).await?;
+                        // Discord shows both global and guild commands in `/`; if globals were
+                        // registered earlier, users see every command twice. Guild registration
+                        // replaces only the guild scope — clear globals so dev guild is single-source.
+                        info!("Clearing global application commands (prevents duplicate slash entries alongside this guild).");
+                        serenity::Command::set_global_commands(ctx, vec![]).await?;
                     } else {
                         info!("Registering commands globally (this can take up to an hour to propagate)...");
                         poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                        // After moving from guild-only to global registration, old guild commands
+                        // would still duplicate in that server unless cleared.
+                        if let Ok(s) = std::env::var("CLEAR_GUILD_SLASH_ID") {
+                            match s.parse::<u64>() {
+                                Ok(gid) => {
+                                    info!(
+                                        "Clearing guild {} slash commands (CLEAR_GUILD_SLASH_ID)",
+                                        gid
+                                    );
+                                    serenity::GuildId::new(gid).set_commands(ctx, vec![]).await?;
+                                }
+                                Err(_) => {
+                                    tracing::warn!(
+                                        "CLEAR_GUILD_SLASH_ID is not a valid u64: {:?}",
+                                        s
+                                    );
+                                }
+                            }
+                        }
                     }
                 } else {
                     info!("Skipping command registration (REGISTER_COMMANDS=false). Use existing registration.");
@@ -278,7 +354,10 @@ async fn main() -> anyhow::Result<()> {
 
                 // Initialize Tools
                 let mut registry = mascord::tools::ToolRegistry::new();
-                registry.register(std::sync::Arc::new(mascord::tools::builtin::music::PlayMusicTool));
+                registry.register(std::sync::Arc::new(mascord::tools::builtin::music::MusicTool));
+                registry.register(std::sync::Arc::new(
+                    mascord::tools::builtin::reminder::ReminderTool,
+                ));
                 registry.register(std::sync::Arc::new(mascord::tools::builtin::rag::SearchLocalHistoryTool {
                     db: db.clone(),
                     llm: llm_client.clone(),
@@ -303,6 +382,7 @@ async fn main() -> anyhow::Result<()> {
                 if config.summarization_enabled {
                     // Start background summarization task (tick interval configurable; triggers decide per-channel work)
                     let db_clone = db.clone();
+                    let cache_summarize = cache.clone();
                     let llm_clone = llm_client.clone();
                     let config_clone = config.clone();
                     let scheduler_instance = scheduler_instance_id.clone();
@@ -333,6 +413,40 @@ async fn main() -> anyhow::Result<()> {
                                     .unwrap_or(false);
                                 if !acquired {
                                     continue;
+                                }
+                            }
+                            if config_clone.summarization_activity_min_messages > 0 {
+                                let gate_h = config_clone.summarization_activity_gate_hours;
+                                let min_m = config_clone.summarization_activity_min_messages;
+                                let db_gate = db_clone.clone();
+                                let cache_cnt = cache_summarize
+                                    .count_messages_in_window_hours(gate_h);
+                                match db_gate
+                                    .run_blocking(move |db| db.count_messages_in_window_hours(gate_h))
+                                    .await
+                                {
+                                    Ok(db_cnt) => {
+                                        // Short-term cache + long-term store: max avoids double-counting the same message.
+                                        let activity = db_cnt.max(cache_cnt);
+                                        if activity < min_m {
+                                            tracing::debug!(
+                                                "Summarization cycle skipped: activity {} in last {}h (db {}, cache {}; min {})",
+                                                activity,
+                                                gate_h,
+                                                db_cnt,
+                                                cache_cnt,
+                                                min_m
+                                            );
+                                            continue;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            "Summarization activity gate query failed: {}",
+                                            e
+                                        );
+                                        continue;
+                                    }
                                 }
                             }
                             info!("Starting periodic background summarization cycle...");
@@ -456,6 +570,58 @@ async fn main() -> anyhow::Result<()> {
                         }
                     }
                 });
+
+                if config.autodream_enabled {
+                    info!(
+                        "AutoDream enabled: interval {}s, min {}h between consolidations; channel summaries={}",
+                        config.autodream_interval_secs,
+                        config.autodream_min_hours,
+                        config.autodream_channel_summaries
+                    );
+                    let db_ad = db.clone();
+                    let cache_ad = cache.clone();
+                    let llm_ad = llm_client.clone();
+                    let config_ad = config.clone();
+                    let scheduler_instance_ad = scheduler_instance_id.clone();
+                    let job_leases_ad = job_leases_enabled;
+                    tokio::spawn(async move {
+                        let service = mascord::services::autodream::AutoDreamService::new(
+                            db_ad.clone(),
+                            cache_ad,
+                            llm_ad,
+                            &config_ad,
+                        );
+                        let mut interval = tokio::time::interval(
+                            tokio::time::Duration::from_secs(config_ad.autodream_interval_secs),
+                        );
+                        loop {
+                            interval.tick().await;
+                            if job_leases_ad {
+                                let db_for_lease = db_ad.clone();
+                                let owner = scheduler_instance_ad.clone();
+                                let acquired = db_for_lease
+                                    .run_blocking(move |db| {
+                                        db.try_acquire_job_lease(
+                                            "autodream",
+                                            &owner,
+                                            job_lease_ttl_secs,
+                                        )
+                                    })
+                                    .await
+                                    .unwrap_or(false);
+                                if !acquired {
+                                    continue;
+                                }
+                            }
+                            match service.run_cycle().await {
+                                Ok(()) => info!("AutoDream cycle completed"),
+                                Err(e) => tracing::error!("AutoDream cycle error: {}", e),
+                            }
+                        }
+                    });
+                } else {
+                    info!("AutoDream disabled (AUTODREAM_ENABLED=false)");
+                }
 
                 // Start reminder dispatcher (polls for due reminders).
                 let reminder_service = mascord::services::reminder::ReminderService::new(db.clone());
