@@ -2,9 +2,9 @@
 
 use crate::llm::confirm::DiscordToolContext;
 use crate::services::music_ops::{
-    music_clear, music_join, music_leave, music_loop, music_move_track, music_now_playing,
-    music_pause, music_play, music_queue_tool_value, music_remove, music_resume, music_shuffle,
-    music_skip, music_volume, LoopModeArg, MUSIC_AGENT_TOOL_NAME, MUSIC_HELP_TEXT,
+    music_clear, music_join, music_leave, music_loop, music_lyrics, music_move_track,
+    music_now_playing, music_pause, music_play, music_queue_tool_value, music_remove, music_resume,
+    music_shuffle, music_skip, music_volume, LoopModeArg, MUSIC_AGENT_TOOL_NAME, MUSIC_HELP_TEXT,
 };
 use crate::tools::Tool;
 use async_trait::async_trait;
@@ -81,7 +81,7 @@ pub async fn dispatch_music_tool(
             }
         }
 
-        "skip" => match music_skip(serenity_ctx, guild_id).await {
+        "skip" => match music_skip(serenity_ctx, data, guild_id).await {
             Ok(op) => Ok(op.to_tool_json()),
             Err(e) => Ok(json!({"status": "error", "message": e})),
         },
@@ -91,12 +91,12 @@ pub async fn dispatch_music_tool(
             Err(e) => Ok(json!({"status": "error", "message": e})),
         },
 
-        "pause" => match music_pause(serenity_ctx, guild_id).await {
+        "pause" => match music_pause(serenity_ctx, data, guild_id).await {
             Ok(op) => Ok(op.to_tool_json()),
             Err(e) => Ok(json!({"status": "error", "message": e})),
         },
 
-        "resume" => match music_resume(serenity_ctx, guild_id).await {
+        "resume" => match music_resume(serenity_ctx, data, guild_id).await {
             Ok(op) => Ok(op.to_tool_json()),
             Err(e) => Ok(json!({"status": "error", "message": e})),
         },
@@ -117,7 +117,12 @@ pub async fn dispatch_music_tool(
             }
         }
 
-        "now_playing" => match music_now_playing(serenity_ctx, guild_id).await {
+        "now_playing" => match music_now_playing(serenity_ctx, data, guild_id).await {
+            Ok(op) => Ok(op.to_tool_json()),
+            Err(e) => Ok(json!({"status": "error", "message": e})),
+        },
+
+        "lyrics" => match music_lyrics(data, guild_id).await {
             Ok(op) => Ok(op.to_tool_json()),
             Err(e) => Ok(json!({"status": "error", "message": e})),
         },
@@ -140,12 +145,12 @@ pub async fn dispatch_music_tool(
             }
         }
 
-        "clear" => match music_clear(serenity_ctx, guild_id).await {
+        "clear" => match music_clear(serenity_ctx, data, guild_id).await {
             Ok(op) => Ok(op.to_tool_json()),
             Err(e) => Ok(json!({"status": "error", "message": e})),
         },
 
-        "shuffle" => match music_shuffle(serenity_ctx, guild_id).await {
+        "shuffle" => match music_shuffle(serenity_ctx, data, guild_id).await {
             Ok(op) => Ok(op.to_tool_json()),
             Err(e) => Ok(json!({"status": "error", "message": e})),
         },
@@ -160,7 +165,7 @@ pub async fn dispatch_music_tool(
                     }));
                 }
             };
-            match music_remove(serenity_ctx, guild_id, position).await {
+            match music_remove(serenity_ctx, data, guild_id, position).await {
                 Ok(op) => Ok(op.to_tool_json()),
                 Err(e) => Ok(json!({"status": "error", "message": e})),
             }
@@ -185,7 +190,7 @@ pub async fn dispatch_music_tool(
                     }));
                 }
             };
-            match music_move_track(serenity_ctx, guild_id, from, to).await {
+            match music_move_track(serenity_ctx, data, guild_id, from, to).await {
                 Ok(op) => Ok(op.to_tool_json()),
                 Err(e) => Ok(json!({"status": "error", "message": e})),
             }
@@ -212,7 +217,7 @@ impl Tool for MusicTool {
     }
 
     fn description(&self) -> &str {
-        "Control music in a voice channel: same actions as slash commands (join, play, skip, leave, pause, resume, volume, now_playing, loop, clear, shuffle, remove, move_track, queue, help). User must be in a guild; for play/join typically in a voice channel. Use action=help for parameters."
+        "Control music in a voice channel: same actions as slash commands (join, play, skip, leave, pause, resume, volume, now_playing, lyrics, loop, clear, shuffle, remove, move_track, queue, help). User must be in a guild; for play/join typically in a voice channel. For best results with play, prefer concrete queries (URL or artist/title) when available. Use action=help for parameters."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -221,9 +226,9 @@ impl Tool for MusicTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "join | play | skip | leave | pause | resume | volume | now_playing | loop | clear | shuffle | remove | move_track | queue | help"
+                    "description": "join | play | skip | leave | pause | resume | volume | now_playing | lyrics | loop | clear | shuffle | remove | move_track | queue | help"
                 },
-                "query": { "type": "string", "description": "Required for play: search or URL" },
+                "query": { "type": "string", "description": "Required for play: search text or URL (more specific queries usually return better results)" },
                 "playlist": { "type": "boolean", "description": "Optional for play: expand playlists" },
                 "percent": { "type": "integer", "description": "Required for volume: 0–200" },
                 "mode": { "type": "string", "description": "Required for loop: off | track | queue" },

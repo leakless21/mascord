@@ -97,6 +97,15 @@ pub struct Database {
     conn: Arc<Mutex<Connection>>,
 }
 
+/// Stored row used to hydrate LLM channel context when the in-memory message cache is empty.
+#[derive(Debug, Clone)]
+pub struct StoredChannelMessage {
+    pub discord_id: String,
+    pub content: String,
+    pub user_id: String,
+    pub timestamp: String,
+}
+
 pub struct ChannelSummaryRecord {
     pub summary: String,
     pub updated_at: String,
@@ -735,6 +744,44 @@ impl Database {
                 user_id: row.get(1)?,
                 timestamp: row.get(2)?,
                 channel_id: row.get(3)?,
+            })
+        })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
+    }
+
+    /// Recent messages for LLM short-term context when the in-memory cache is empty (e.g. after restart).
+    /// Same filters as [`Self::get_recent_messages`], including `discord_id` for deduplication.
+    pub fn get_recent_messages_for_channel_context(
+        &self,
+        channel_id: &str,
+        from: DateTime<Utc>,
+        limit: usize,
+    ) -> anyhow::Result<Vec<StoredChannelMessage>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT m.discord_id, m.content, m.user_id, m.timestamp
+             FROM messages m
+             LEFT JOIN channel_settings s ON m.channel_id = s.channel_id
+             WHERE m.channel_id = ?1
+               AND (s.enabled IS NULL OR s.enabled = 1)
+               AND (s.memory_start_date IS NULL OR m.timestamp >= s.memory_start_date)
+               AND m.timestamp >= ?2
+             ORDER BY m.timestamp DESC
+             LIMIT ?3",
+        )?;
+
+        let from_str = from.format("%Y-%m-%d %H:%M:%S").to_string();
+        let rows = stmt.query_map((channel_id, from_str, limit), |row| {
+            Ok(StoredChannelMessage {
+                discord_id: row.get(0)?,
+                content: row.get(1)?,
+                user_id: row.get(2)?,
+                timestamp: row.get(3)?,
             })
         })?;
 

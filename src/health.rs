@@ -102,7 +102,7 @@ pub async fn run_health_server(port: u16, ready: Arc<AtomicBool>) -> anyhow::Res
 
             let response = format!(
                 "{status_line}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.as_bytes().len()
+                body.len()
             );
 
             if let Err(e) = stream.write_all(response.as_bytes()).await {

@@ -20,6 +20,18 @@ pub struct Config {
     pub youtube_cookies: Option<String>,
     pub youtube_download_dir: String,
     pub youtube_cleanup_after_secs: u64,
+    /// When true, use a Lavalink server for playback (Songbird `join_gateway`); yt-dlp path is disabled for music.
+    pub lavalink_enabled: bool,
+    /// Lavalink REST/WS host, e.g. `127.0.0.1:2333` (no scheme).
+    pub lavalink_host: String,
+    /// Must match `lavalink.server.password` in the Lavalink `application.yml`.
+    pub lavalink_password: String,
+    /// Default Lavalink/LavaSrc search prefix for plain queries (e.g. `ytsearch`, `ytmsearch`, `spsearch` when configured on the node).
+    pub lavalink_search_prefix: String,
+    /// SponsorBlock segment categories to skip (YouTube). When set, mascord applies them after joining voice. Empty = do not send PUT (plugin defaults).
+    pub lavalink_sponsorblock_categories: Option<Vec<String>>,
+    /// When true, resolve **non-URL** searches via LavaSearch `GET /v4/loadsearch` instead of `load_tracks` (requires lavasearch-plugin on the node).
+    pub lavalink_use_lavasearch: bool,
     pub searxng_url: String,
     pub web_tool_timeout_secs: u64,
     pub web_search_default_limit: usize,
@@ -31,6 +43,12 @@ pub struct Config {
     // Timeout & Maintenance settings
     pub llm_timeout_secs: u64,
     pub embedding_timeout_secs: u64,
+    /// Log serialized LLM request payloads (prompt/messages/tools). Off by default.
+    pub log_llm_requests: bool,
+    /// Log serialized LLM API responses (content/tool_calls/usage). Off by default.
+    pub log_llm_responses: bool,
+    /// Log tool-call arguments emitted by the model. Off by default.
+    pub log_llm_tool_args: bool,
     /// Seconds after the queue is empty (last track ended) before leaving voice (`0` = leave immediately after drain).
     pub voice_idle_timeout_secs: u64,
     /// Seconds to wait after the voice channel has no human listeners before disconnecting (`0` = disabled).
@@ -46,6 +64,8 @@ pub struct Config {
 
     // Agent confirmation settings
     pub agent_confirm_timeout_secs: u64,
+    /// Overall timeout for mention/reply agent runs (covers multiple LLM calls + tool calls).
+    pub agent_run_timeout_secs: u64,
 
     // Background embedding indexer settings
     pub embedding_indexer_enabled: bool,
@@ -112,6 +132,12 @@ pub(crate) fn test_memory_config() -> Config {
         youtube_cookies: None,
         youtube_download_dir: "/tmp".to_string(),
         youtube_cleanup_after_secs: 3600,
+        lavalink_enabled: false,
+        lavalink_host: "127.0.0.1:2333".to_string(),
+        lavalink_password: String::new(),
+        lavalink_search_prefix: "ytsearch".to_string(),
+        lavalink_sponsorblock_categories: None,
+        lavalink_use_lavasearch: false,
         searxng_url: "http://localhost:8086".to_string(),
         web_tool_timeout_secs: 20,
         web_search_default_limit: 5,
@@ -121,6 +147,9 @@ pub(crate) fn test_memory_config() -> Config {
         context_retention_hours: 24,
         llm_timeout_secs: 120,
         embedding_timeout_secs: 30,
+        log_llm_requests: false,
+        log_llm_responses: false,
+        log_llm_tool_args: false,
         // Voice: ~3 min after queue ends; ~1.5 min when VC has no humans; follow off by default.
         voice_idle_timeout_secs: 180,
         voice_alone_timeout_secs: 90,
@@ -130,6 +159,7 @@ pub(crate) fn test_memory_config() -> Config {
         dev_guild_id: None,
         register_commands: false,
         agent_confirm_timeout_secs: 300,
+        agent_run_timeout_secs: 180,
         embedding_indexer_enabled: true,
         embedding_indexer_batch_size: 25,
         embedding_indexer_interval_secs: 30,
@@ -166,10 +196,19 @@ pub(crate) fn test_memory_config() -> Config {
 
 /// Default when `SYSTEM_PROMPT` is unset.
 /// Style follows common agent prompts: role + tone + *when* to use tools; tool definitions carry *which* tools and their parameters (avoid duplicating schemas here).
-const DEFAULT_SYSTEM_PROMPT: &str = "You are Mascord, a Discord assistant. \
-Be clear and concise; a little snark and dry wit are on-brand—clever, never cruel or punching down. \
-When the user wants something you can do via the available tools, call the right tool and pass arguments that match its schema—use only names and parameters from the tool list, never invented tools. \
-For questions, opinions, or chat that does not require an action, answer in plain text.";
+const DEFAULT_SYSTEM_PROMPT: &str = "You are Mascord, a Discord assistant for a homelab community. \
+Identity and tone: clear, concise, and helpful; light snark and dry wit are on-brand, but never cruel, hostile, or punching down. \
+Conversation policy: treat prior conversation as context only; execute the most recent user request as the active task unless the user explicitly asks to revisit earlier requests. \
+Decision loop: classify -> plan -> act -> check. \
+Classify each active request as concrete, open-ended/evaluative, or ambiguous. \
+Plan by strategy: concrete -> direct execution path; open-ended/evaluative -> brief discovery then execute; ambiguous -> ask one concise clarification unless the user clearly asks you to choose, then state assumptions briefly and proceed. \
+Discovery policy: when quality depends on external evidence, preferences, or ranking, gather brief relevant evidence before taking side-effect actions; if the request is already specific and actionable, execute directly. \
+Tool policy: when action is needed and an available tool can do it, call the right tool with parameters that match its schema exactly; use only defined tool names and fields. \
+Quality policy: prefer the fewest tool calls that still produce a reliable result; do not skip necessary discovery only to minimize calls. \
+Loop policy: after each tool result, decide exactly one next step: done, one more step, or clarify. Keep loops short: at most 2 discovery steps and 1 recovery step after failure. \
+Failure policy: if a tool fails or yields weak signal, adapt with a different viable step once, then deliver best effort with caveats or ask one targeted follow-up; do not repeat the same failing call. \
+Completion policy: once the task is complete, stop calling tools and provide a direct final answer. \
+For questions, opinions, or chat that do not require an action, answer in plain text.";
 
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
@@ -178,7 +217,7 @@ impl Config {
     }
 
     fn build() -> anyhow::Result<Self> {
-        Ok(Config {
+        let c = Config {
             discord_token: env::var("DISCORD_TOKEN")
                 .map_err(|_| anyhow::anyhow!("DISCORD_TOKEN must be set"))?,
             application_id: env::var("APPLICATION_ID")
@@ -216,6 +255,32 @@ impl Config {
                 .unwrap_or_else(|_| "3600".to_string())
                 .parse()
                 .unwrap_or(3600),
+            lavalink_enabled: env::var("LAVALINK_ENABLED")
+                .unwrap_or_else(|_| "false".to_string())
+                .parse()
+                .unwrap_or(false),
+            lavalink_host: env::var("LAVALINK_HOST")
+                .unwrap_or_else(|_| "127.0.0.1:2333".to_string()),
+            lavalink_password: env::var("LAVALINK_PASSWORD").unwrap_or_default(),
+            lavalink_search_prefix: env::var("LAVALINK_SEARCH_PREFIX")
+                .unwrap_or_else(|_| "ytsearch".to_string())
+                .trim()
+                .to_string(),
+            lavalink_sponsorblock_categories: env::var("LAVALINK_SPONSORBLOCK_CATEGORIES")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    s.split(',')
+                        .map(|x| x.trim().to_string())
+                        .filter(|x| !x.is_empty())
+                        .collect::<Vec<_>>()
+                })
+                .filter(|v| !v.is_empty()),
+            lavalink_use_lavasearch: env::var("LAVALINK_USE_LAVASEARCH")
+                .unwrap_or_else(|_| "false".to_string())
+                .parse()
+                .unwrap_or(false),
             searxng_url: env::var("SEARXNG_URL")
                 .unwrap_or_else(|_| "http://localhost:8086".to_string()),
             web_tool_timeout_secs: env::var("WEB_TOOL_TIMEOUT_SECS")
@@ -248,6 +313,18 @@ impl Config {
                 .unwrap_or_else(|_| "30".to_string())
                 .parse()
                 .unwrap_or(30),
+            log_llm_requests: env::var("LOG_LLM_REQUESTS")
+                .unwrap_or_else(|_| "false".to_string())
+                .parse()
+                .unwrap_or(false),
+            log_llm_responses: env::var("LOG_LLM_RESPONSES")
+                .unwrap_or_else(|_| "false".to_string())
+                .parse()
+                .unwrap_or(false),
+            log_llm_tool_args: env::var("LOG_LLM_TOOL_ARGS")
+                .unwrap_or_else(|_| "false".to_string())
+                .parse()
+                .unwrap_or(false),
             voice_idle_timeout_secs: env::var("VOICE_IDLE_TIMEOUT_SECS")
                 .unwrap_or_else(|_| "180".to_string())
                 .parse()
@@ -284,6 +361,10 @@ impl Config {
                 .unwrap_or_else(|_| "300".to_string())
                 .parse()
                 .unwrap_or(300),
+            agent_run_timeout_secs: env::var("AGENT_RUN_TIMEOUT_SECS")
+                .unwrap_or_else(|_| "180".to_string())
+                .parse()
+                .unwrap_or(180),
 
             embedding_indexer_enabled: env::var("EMBEDDING_INDEXER_ENABLED")
                 .unwrap_or_else(|_| "true".to_string())
@@ -415,7 +496,16 @@ impl Config {
                 .unwrap_or_else(|_| "72".to_string())
                 .parse()
                 .unwrap_or(72),
-        })
+        };
+        if c.lavalink_enabled && c.lavalink_password.is_empty() {
+            anyhow::bail!(
+                "LAVALINK_ENABLED=true requires LAVALINK_PASSWORD (must match Lavalink server)"
+            );
+        }
+        if c.lavalink_enabled && c.lavalink_search_prefix.is_empty() {
+            anyhow::bail!("LAVALINK_SEARCH_PREFIX must not be empty when LAVALINK_ENABLED=true");
+        }
+        Ok(c)
     }
 }
 
@@ -445,6 +535,22 @@ impl std::fmt::Debug for Config {
                 "youtube_cookies",
                 &self.youtube_cookies.as_ref().map(|_| "[REDACTED]"),
             )
+            .field("lavalink_enabled", &self.lavalink_enabled)
+            .field("lavalink_host", &self.lavalink_host)
+            .field(
+                "lavalink_password",
+                &if self.lavalink_password.is_empty() {
+                    "[unset]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field("lavalink_search_prefix", &self.lavalink_search_prefix)
+            .field(
+                "lavalink_sponsorblock_categories",
+                &self.lavalink_sponsorblock_categories,
+            )
+            .field("lavalink_use_lavasearch", &self.lavalink_use_lavasearch)
             .field("searxng_url", &self.searxng_url)
             .field("web_tool_timeout_secs", &self.web_tool_timeout_secs)
             .field("web_search_default_limit", &self.web_search_default_limit)
@@ -454,6 +560,9 @@ impl std::fmt::Debug for Config {
             .field("context_retention_hours", &self.context_retention_hours)
             .field("llm_timeout_secs", &self.llm_timeout_secs)
             .field("embedding_timeout_secs", &self.embedding_timeout_secs)
+            .field("log_llm_requests", &self.log_llm_requests)
+            .field("log_llm_responses", &self.log_llm_responses)
+            .field("log_llm_tool_args", &self.log_llm_tool_args)
             .field("voice_idle_timeout_secs", &self.voice_idle_timeout_secs)
             .field("voice_alone_timeout_secs", &self.voice_alone_timeout_secs)
             .field("voice_follow_user_move", &self.voice_follow_user_move)
@@ -468,6 +577,7 @@ impl std::fmt::Debug for Config {
                 "agent_confirm_timeout_secs",
                 &self.agent_confirm_timeout_secs,
             )
+            .field("agent_run_timeout_secs", &self.agent_run_timeout_secs)
             .field("embedding_indexer_enabled", &self.embedding_indexer_enabled)
             .field(
                 "embedding_indexer_batch_size",

@@ -258,17 +258,32 @@ fn meta_to_user_data(
     })
 }
 
+/// Arguments for [`enqueue_one`] (keeps the call surface small for clippy).
+#[derive(Debug, Clone)]
+pub struct EnqueueOneArgs {
+    pub http: reqwest::Client,
+    pub item: String,
+    pub is_url: bool,
+    pub cookies_path: Option<String>,
+    pub volume: f32,
+    pub preflight: bool,
+    pub verify_immediate_decode: bool,
+}
+
 /// Enqueue one item (URL or search query). Preflights metadata unless `preflight` is false.
 pub async fn enqueue_one(
     handler: &mut songbird::Call,
-    http: reqwest::Client,
-    item: String,
-    is_url: bool,
-    cookies_path: Option<String>,
-    volume: f32,
-    preflight: bool,
-    verify_immediate_decode: bool,
+    args: EnqueueOneArgs,
 ) -> Result<TrackUserData, String> {
+    let EnqueueOneArgs {
+        http,
+        item,
+        is_url,
+        cookies_path,
+        volume,
+        preflight,
+        verify_immediate_decode,
+    } = args;
     let cookies_ref = cookies_path.as_ref();
     let cookies_ok_flag = cookies_ok(cookies_ref);
     if cookies_path.is_some() && !cookies_ok_flag {
@@ -301,6 +316,11 @@ pub async fn join_voice_channel_serenity(
     http_client: reqwest::Client,
     youtube_cookies: Option<String>,
 ) -> Result<serenity::ChannelId, String> {
+    if data.lavalink.is_some() {
+        return super::lavalink::join_lavalink_voice(serenity_ctx, data, guild_id, user_id, music)
+            .await;
+    }
+
     let channel_id = {
         let guild = serenity_ctx
             .cache
@@ -391,6 +411,19 @@ pub async fn enqueue_playback(
     music: &Arc<MusicState>,
     opts: EnqueueOpts,
 ) -> Result<EnqueueSummary, String> {
+    if data.lavalink.is_some() {
+        return super::lavalink::enqueue_lavalink_playback(
+            serenity_ctx,
+            data,
+            guild_id,
+            requester,
+            query,
+            music,
+            opts,
+        )
+        .await;
+    }
+
     let manager = songbird::get(serenity_ctx)
         .await
         .ok_or_else(|| "Songbird not initialized.".to_string())?
@@ -512,13 +545,15 @@ pub async fn enqueue_playback(
     let verify_immediate = handler.queue().is_empty();
     let added_meta = enqueue_one(
         &mut handler,
-        data.http_client.clone(),
-        query.clone(),
-        is_url,
-        cookies_path,
-        vol,
-        true,
-        verify_immediate,
+        EnqueueOneArgs {
+            http: data.http_client.clone(),
+            item: query.clone(),
+            is_url,
+            cookies_path,
+            volume: vol,
+            preflight: true,
+            verify_immediate_decode: verify_immediate,
+        },
     )
     .await?;
     Ok(EnqueueSummary {
@@ -559,13 +594,15 @@ pub async fn replay_queue_snapshot(
         }
         enqueue_one(
             &mut handler,
-            http_client.clone(),
-            query,
-            is_url,
-            cookies_path.clone(),
-            vol,
-            false,
-            false,
+            EnqueueOneArgs {
+                http: http_client.clone(),
+                item: query,
+                is_url,
+                cookies_path: cookies_path.clone(),
+                volume: vol,
+                preflight: false,
+                verify_immediate_decode: false,
+            },
         )
         .await?;
     }

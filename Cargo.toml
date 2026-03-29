@@ -43,3 +43,18 @@ humantime = "2"
 anyhow = "1"
 pulldown-cmark = "0.10"
 rand = "0.8"
+futures = "0.3"
+# Vendored from crates.io 0.15.0 + Songbird `next` ConnectionInfo fix (see vendor/lavalink-rs/src/model/player.rs).
+lavalink-rs = { path = "vendor/lavalink-rs", default-features = false, features = [
+    "serenity",
+    "songbird",
+    "tungstenite-rustls-native-roots",
+] }
+
+# Lavalink uses the same Songbird revision as mascord (lavalink-rs depends on songbird 0.5 from crates.io).
+[patch.crates-io]
+songbird = { git = "https://github.com/serenity-rs/songbird.git", branch = "next" }
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+serde_json = "1"

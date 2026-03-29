@@ -28,6 +28,8 @@ pub struct Data {
     pub tools: std::sync::Arc<tools::ToolRegistry>,
     /// Per-guild music (volume, queue loop, voice hook tracking).
     pub music: std::sync::Arc<crate::commands::music::MusicState>,
+    /// Lavalink client (when `LAVALINK_ENABLED=true`); Songbird uses `join_gateway` + node audio.
+    pub lavalink: Option<std::sync::Arc<lavalink_rs::client::LavalinkClient>>,
     /// Bot's own user ID for context formatting
     pub bot_id: u64,
 }

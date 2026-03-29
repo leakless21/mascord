@@ -28,6 +28,7 @@ async fn main() -> anyhow::Result<()> {
             "mascord=debug,\
              poise=debug,\
              serenity=debug,\
+             serenity::client::dispatch=warn,\
              songbird=info,\
              reqwest=info,\
              async_openai=info,\
@@ -143,6 +144,7 @@ async fn main() -> anyhow::Result<()> {
                 music::resume(),
                 music::volume(),
                 music::now_playing_cmd(),
+                music::lyrics(),
                 music::loop_cmd(),
                 music::clear(),
                 music::shuffle(),
@@ -241,6 +243,11 @@ async fn main() -> anyhow::Result<()> {
                     }
                     Ok(())
                 })
+            },
+            // Slash commands only; do not treat `<@bot> ...` as a prefix command (mentions go to the LLM agent).
+            prefix_options: poise::PrefixFrameworkOptions {
+                mention_as_prefix: false,
+                ..Default::default()
             },
             on_error: |error| {
                 Box::pin(async move {
@@ -735,6 +742,13 @@ async fn main() -> anyhow::Result<()> {
 
                 let bot_id = config.application_id;
                 let music = std::sync::Arc::new(mascord::commands::music::MusicState::new());
+                let lavalink = mascord::commands::music::lavalink::create_lavalink_client(&config).await;
+                if lavalink.is_some() {
+                    info!(
+                        "Lavalink enabled: node {} (Songbird gateway mode)",
+                        config.lavalink_host
+                    );
+                }
                 readiness_for_setup.store(true, Ordering::SeqCst);
 
                 Ok(Data {
@@ -745,6 +759,7 @@ async fn main() -> anyhow::Result<()> {
                     cache,
                     tools,
                     music,
+                    lavalink,
                     bot_id,
                 })
             })

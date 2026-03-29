@@ -20,6 +20,9 @@ pub struct LlmClient {
     embedding_model: String,
     chat_timeout: u64,
     embedding_timeout: u64,
+    log_llm_requests: bool,
+    log_llm_responses: bool,
+    log_llm_tool_args: bool,
 }
 
 impl LlmClient {
@@ -47,6 +50,64 @@ impl LlmClient {
             embedding_model: config.embedding_model.clone(),
             chat_timeout: config.llm_timeout_secs,
             embedding_timeout: config.embedding_timeout_secs,
+            log_llm_requests: config.log_llm_requests,
+            log_llm_responses: config.log_llm_responses,
+            log_llm_tool_args: config.log_llm_tool_args,
+        }
+    }
+
+    pub fn log_llm_tool_args(&self) -> bool {
+        self.log_llm_tool_args
+    }
+
+    fn redact_sensitive_json(value: &mut Value) {
+        fn looks_sensitive_key(key: &str) -> bool {
+            let k = key.to_ascii_lowercase();
+            [
+                "authorization",
+                "api_key",
+                "apikey",
+                "token",
+                "password",
+                "secret",
+                "cookie",
+                "set-cookie",
+            ]
+            .iter()
+            .any(|needle| k.contains(needle))
+        }
+
+        match value {
+            Value::Object(map) => {
+                for (k, v) in map.iter_mut() {
+                    if looks_sensitive_key(k) {
+                        *v = Value::String("[REDACTED]".to_string());
+                    } else {
+                        Self::redact_sensitive_json(v);
+                    }
+                }
+            }
+            Value::Array(arr) => {
+                for item in arr.iter_mut() {
+                    Self::redact_sensitive_json(item);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn compact_redacted_json<T: serde::Serialize>(input: &T, max_chars: usize) -> String {
+        match serde_json::to_value(input) {
+            Ok(mut v) => {
+                Self::redact_sensitive_json(&mut v);
+                let mut s = v.to_string();
+                if s.len() > max_chars {
+                    s.truncate(max_chars);
+                    s.push_str("...<truncated>");
+                }
+                s
+            }
+            Err(e) => format!("<json serialize error: {}>", e),
         }
     }
 
@@ -116,6 +177,11 @@ impl LlmClient {
             .build()
             .context("failed to build chat completion request (check model / messages)")?;
 
+        if self.log_llm_requests {
+            let payload = Self::compact_redacted_json(&request, 32_000);
+            debug!(model = %self.chat_model, payload = %payload, "LLM request payload");
+        }
+
         debug!(
             "Sending chat request to {} (timeout: {}s)...",
             self.chat_model, self.chat_timeout
@@ -137,6 +203,10 @@ impl LlmClient {
             "LLM chat request to {} completed in {:?}",
             self.chat_model, duration
         );
+        if self.log_llm_responses {
+            let payload = Self::compact_redacted_json(&response, 32_000);
+            debug!(model = %self.chat_model, payload = %payload, "LLM response payload");
+        }
 
         if response.choices.is_empty() {
             error!("LLM returned zero choices (model: {})", self.chat_model);

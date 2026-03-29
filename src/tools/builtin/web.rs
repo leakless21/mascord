@@ -34,7 +34,7 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search the web using SearXNG and return concise, ranked results."
+        "Search the web using SearXNG and return concise, ranked results. Useful for quick discovery, fact-finding, and gathering supporting evidence before acting."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -182,6 +182,12 @@ impl Tool for FetchUrlTool {
             .unwrap_or("unknown")
             .to_string();
 
+        if should_fallback_to_jina_on_status(status, &final_url, render_mode) {
+            if let Ok(jina_result) = self.fetch_with_jina_reader(url, max_chars).await {
+                return Ok(jina_result);
+            }
+        }
+
         let response = response.error_for_status()?;
         let body = response.text().await?;
         let (title, extracted, mut extraction_mode) = if content_type.contains("text/html") {
@@ -324,6 +330,35 @@ fn should_auto_render_with_jina(
     }
 
     false
+}
+
+fn should_fallback_to_jina_on_status(status: reqwest::StatusCode, final_url: &str, render_mode: RenderMode) -> bool {
+    if render_mode == RenderMode::Always {
+        return true;
+    }
+
+    if render_mode == RenderMode::Auto
+        && matches!(
+            status,
+            reqwest::StatusCode::FORBIDDEN
+                | reqwest::StatusCode::TOO_MANY_REQUESTS
+                | reqwest::StatusCode::SERVICE_UNAVAILABLE
+                | reqwest::StatusCode::UNAUTHORIZED
+        )
+    {
+        return true;
+    }
+
+    if status != reqwest::StatusCode::FORBIDDEN {
+        return false;
+    }
+
+    let host = Url::parse(final_url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_ascii_lowercase()))
+        .unwrap_or_default();
+
+    host == "reddit.com" || host.ends_with(".reddit.com")
 }
 
 fn extract_html_text(html: &str, source_url: &str) -> (String, String, String) {
@@ -472,6 +507,25 @@ mod tests {
             "text/html",
             &"a".repeat(5000),
             Some("<html><body>normal</body></html>")
+        ));
+    }
+
+    #[test]
+    fn test_status_based_jina_fallback() {
+        assert!(should_fallback_to_jina_on_status(
+            reqwest::StatusCode::FORBIDDEN,
+            "https://www.reddit.com/r/rust/",
+            RenderMode::Off
+        ));
+        assert!(should_fallback_to_jina_on_status(
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            "https://example.com",
+            RenderMode::Auto
+        ));
+        assert!(!should_fallback_to_jina_on_status(
+            reqwest::StatusCode::FORBIDDEN,
+            "https://example.com",
+            RenderMode::Off
         ));
     }
 }

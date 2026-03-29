@@ -3,6 +3,7 @@
 pub(crate) mod format;
 mod handlers;
 pub mod playback;
+pub mod lavalink;
 pub(crate) mod queue_ops;
 pub mod state;
 
@@ -11,15 +12,16 @@ use format::format_hms;
 pub use state::{LoopMode, MusicState};
 
 use crate::services::music_ops::{
-    build_queue_page, music_clear, music_join, music_leave, music_loop, music_move_track,
-    music_now_playing, music_pause, music_play, music_remove, music_resume, music_shuffle,
-    music_skip, music_skip_button, music_stop_and_leave, music_toggle_pause, music_volume,
-    now_playing_embed, play_controls_refresh_embed, play_embed, LoopModeArg,
+    build_queue_page, build_queue_page_lavalink, lavalink_queue_is_empty, music_clear, music_join,
+    music_leave, music_loop, music_lyrics, music_move_track, music_now_playing, music_pause,
+    music_play, music_remove, music_resume, music_shuffle, music_skip, music_skip_button,
+    music_stop_and_leave, music_toggle_pause, music_volume, now_playing_embed,
+    play_controls_refresh_embed, play_embed, LoopModeArg,
 };
 use crate::{Context, Error};
 use poise::serenity_prelude::{
     ButtonStyle, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedFooter,
-    CreateInteractionResponse, CreateInteractionResponseMessage, EditMessage,
+    CreateInteractionResponse, EditInteractionResponse, EditMessage,
 };
 
 /// Wall-clock budget for `/play` and `/queue` component sessions (avoids indefinite extension
@@ -48,7 +50,7 @@ pub async fn join(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Play audio (YouTube search, video URL, or yt-dlp-supported URL)
+/// Play a URL or search query (Lavalink: use `ytmsearch:` / `spsearch:` or `LAVALINK_SEARCH_PREFIX`).
 #[poise::command(
     slash_command,
     guild_only,
@@ -56,7 +58,7 @@ pub async fn join(ctx: Context<'_>) -> Result<(), Error> {
 )]
 pub async fn play(
     ctx: Context<'_>,
-    #[description = "URL or search query"] query: String,
+    #[description = "URL, search query, or prefixed query (e.g. ytmsearch:artist song)"] query: String,
     #[description = "Expand YouTube playlists (URLs only, max 50 tracks)"] playlist: Option<bool>,
 ) -> Result<(), Error> {
     ctx.defer().await?;
@@ -110,53 +112,51 @@ pub async fn play(
                 .await;
             return Ok(());
         };
+        let _ = interaction
+            .create_response(ctx.serenity_context(), CreateInteractionResponse::Acknowledge)
+            .await;
 
         let id = interaction.data.custom_id.as_str();
         if id == "stop" {
             let _ = music_stop_and_leave(ctx.serenity_context(), ctx.data(), guild_id).await;
             let _ = interaction
-                .create_response(
+                .edit_response(
                     ctx.serenity_context(),
-                    CreateInteractionResponse::UpdateMessage(
-                        CreateInteractionResponseMessage::new()
-                            .content("Stopped playback and left channel.")
-                            .components(vec![])
-                            .embeds(vec![]),
-                    ),
+                    EditInteractionResponse::new()
+                        .content("Stopped playback and left channel.")
+                        .components(vec![])
+                        .embeds(vec![]),
                 )
                 .await;
             return Ok(());
         }
         if id == "pause" {
-            let _ = music_toggle_pause(ctx.serenity_context(), guild_id).await;
+            let _ = music_toggle_pause(ctx.serenity_context(), ctx.data(), guild_id).await;
         } else if id == "skip" {
-            let _ = music_skip_button(ctx.serenity_context(), guild_id).await;
+            let _ = music_skip_button(ctx.serenity_context(), ctx.data(), guild_id).await;
         } else {
             continue;
         }
 
-        if let Some(new_embed) = play_controls_refresh_embed(ctx.serenity_context(), guild_id).await
+        if let Some(new_embed) =
+            play_controls_refresh_embed(ctx.serenity_context(), ctx.data(), guild_id).await
         {
             let _ = interaction
-                .create_response(
+                .edit_response(
                     ctx.serenity_context(),
-                    CreateInteractionResponse::UpdateMessage(
-                        CreateInteractionResponseMessage::new()
-                            .embed(new_embed)
-                            .components(vec![row.clone()]),
-                    ),
+                    EditInteractionResponse::new()
+                        .embed(new_embed)
+                        .components(vec![row.clone()]),
                 )
                 .await;
         } else {
             let _ = interaction
-                .create_response(
+                .edit_response(
                     ctx.serenity_context(),
-                    CreateInteractionResponse::UpdateMessage(
-                        CreateInteractionResponseMessage::new()
-                            .content("📭 Queue is empty.")
-                            .components(vec![])
-                            .embeds(vec![]),
-                    ),
+                    EditInteractionResponse::new()
+                        .content("📭 Queue is empty.")
+                        .components(vec![])
+                        .embeds(vec![]),
                 )
                 .await;
             return Ok(());
@@ -184,10 +184,11 @@ fn play_message_control_row() -> CreateActionRow {
 /// Skip the current song
 #[poise::command(slash_command, guild_only)]
 pub async fn skip(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.defer().await?;
     let guild_id = ctx
         .guild_id()
         .ok_or("This command must be used in a server")?;
-    match music_skip(ctx.serenity_context(), guild_id).await {
+    match music_skip(ctx.serenity_context(), ctx.data(), guild_id).await {
         Ok(op) => {
             ctx.say(op.discord_message()).await?;
         }
@@ -219,7 +220,7 @@ pub async fn leave(ctx: Context<'_>) -> Result<(), Error> {
 #[poise::command(slash_command, guild_only)]
 pub async fn pause(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = ctx.guild_id().ok_or("Guild only")?;
-    match music_pause(ctx.serenity_context(), guild_id).await {
+    match music_pause(ctx.serenity_context(), ctx.data(), guild_id).await {
         Ok(op) => {
             ctx.say(op.discord_message()).await?;
         }
@@ -234,7 +235,7 @@ pub async fn pause(ctx: Context<'_>) -> Result<(), Error> {
 #[poise::command(slash_command, guild_only)]
 pub async fn resume(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = ctx.guild_id().ok_or("Guild only")?;
-    match music_resume(ctx.serenity_context(), guild_id).await {
+    match music_resume(ctx.serenity_context(), ctx.data(), guild_id).await {
         Ok(op) => {
             ctx.say(op.discord_message()).await?;
         }
@@ -267,11 +268,27 @@ pub async fn volume(
 #[poise::command(slash_command, guild_only, rename = "nowplaying")]
 pub async fn now_playing_cmd(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = ctx.guild_id().ok_or("Guild only")?;
-    match music_now_playing(ctx.serenity_context(), guild_id).await {
+    match music_now_playing(ctx.serenity_context(), ctx.data(), guild_id).await {
         Ok(op) => {
             let embed = now_playing_embed(&op)
                 .ok_or_else(|| -> Error { "internal: now playing embed".into() })?;
             ctx.send(poise::CreateReply::default().embed(embed)).await?;
+        }
+        Err(e) => {
+            ctx.say(e).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Lyrics for the current track (Lavalink + LavaLyrics on the node)
+#[poise::command(slash_command, guild_only)]
+pub async fn lyrics(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.defer().await?;
+    let guild_id = ctx.guild_id().ok_or("Guild only")?;
+    match music_lyrics(ctx.data(), guild_id).await {
+        Ok(op) => {
+            ctx.say(op.discord_message()).await?;
         }
         Err(e) => {
             ctx.say(e).await?;
@@ -317,7 +334,7 @@ pub async fn loop_cmd(
 #[poise::command(slash_command, guild_only)]
 pub async fn clear(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = ctx.guild_id().ok_or("Guild only")?;
-    match music_clear(ctx.serenity_context(), guild_id).await {
+    match music_clear(ctx.serenity_context(), ctx.data(), guild_id).await {
         Ok(op) => {
             ctx.say(op.discord_message()).await?;
         }
@@ -332,7 +349,7 @@ pub async fn clear(ctx: Context<'_>) -> Result<(), Error> {
 #[poise::command(slash_command, guild_only)]
 pub async fn shuffle(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = ctx.guild_id().ok_or("Guild only")?;
-    match music_shuffle(ctx.serenity_context(), guild_id).await {
+    match music_shuffle(ctx.serenity_context(), ctx.data(), guild_id).await {
         Ok(op) => {
             ctx.say(op.discord_message()).await?;
         }
@@ -350,7 +367,7 @@ pub async fn remove(
     #[description = "Position in queue (1 = now playing)"] position: u32,
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().ok_or("Guild only")?;
-    match music_remove(ctx.serenity_context(), guild_id, position).await {
+    match music_remove(ctx.serenity_context(), ctx.data(), guild_id, position).await {
         Ok(op) => {
             ctx.say(op.discord_message()).await?;
         }
@@ -369,7 +386,7 @@ pub async fn move_track(
     #[description = "To position"] to: u32,
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().ok_or("Guild only")?;
-    match music_move_track(ctx.serenity_context(), guild_id, from, to).await {
+    match music_move_track(ctx.serenity_context(), ctx.data(), guild_id, from, to).await {
         Ok(op) => {
             ctx.say(op.discord_message()).await?;
         }
@@ -390,22 +407,30 @@ pub async fn queue(ctx: Context<'_>) -> Result<(), Error> {
         .await
         .ok_or("Songbird Voice client not initialized")?;
 
-    if let Some(handler_lock) = manager.get(guild_id) {
-        let handler = handler_lock.lock().await;
-        let queue = handler.queue();
-        let all = queue.current_queue();
-        if all.is_empty() {
-            ctx.say("📭 Queue is empty").await?;
-            return Ok(());
-        }
-
-        let tracks = all.clone();
-        drop(handler);
-
+    if manager.get(guild_id).is_some() {
         let mut page = 0usize;
         let items_per_page = 10;
-        let loop_mode = ctx.data().music.loop_mode(guild_id.get());
-        let built = build_queue_page(&tracks, page, items_per_page, loop_mode).await;
+
+        let built = if ctx.data().lavalink.is_some() {
+            if lavalink_queue_is_empty(ctx.data(), guild_id).await {
+                ctx.say("📭 Queue is empty").await?;
+                return Ok(());
+            }
+            build_queue_page_lavalink(ctx.data(), guild_id, page, items_per_page).await?
+        } else {
+            let handler_lock = manager.get(guild_id).unwrap();
+            let handler = handler_lock.lock().await;
+            let queue = handler.queue();
+            let all = queue.current_queue();
+            if all.is_empty() {
+                ctx.say("📭 Queue is empty").await?;
+                return Ok(());
+            }
+            let tracks = all.clone();
+            drop(handler);
+            let loop_mode = ctx.data().music.loop_mode(guild_id.get());
+            build_queue_page(&tracks, page, items_per_page, loop_mode).await
+        };
 
         let embed = CreateEmbed::new()
             .title("🎶 Music Queue")
@@ -485,29 +510,31 @@ pub async fn queue(ctx: Context<'_>) -> Result<(), Error> {
                     .await;
                 return Ok(());
             };
+            let _ = interaction
+                .create_response(ctx.serenity_context(), CreateInteractionResponse::Acknowledge)
+                .await;
 
             let custom_id = &interaction.data.custom_id;
 
             if ["pause", "skip", "stop"].contains(&custom_id.as_str()) {
                 match custom_id.as_str() {
                     "pause" => {
-                        let _ = music_toggle_pause(ctx.serenity_context(), guild_id).await;
+                        let _ =
+                            music_toggle_pause(ctx.serenity_context(), ctx.data(), guild_id).await;
                     }
                     "skip" => {
-                        let _ = music_skip_button(ctx.serenity_context(), guild_id).await;
+                        let _ = music_skip_button(ctx.serenity_context(), ctx.data(), guild_id).await;
                     }
                     "stop" => {
                         let _ = music_stop_and_leave(ctx.serenity_context(), ctx.data(), guild_id)
                             .await;
                         let _ = interaction
-                            .create_response(
+                            .edit_response(
                                 ctx.serenity_context(),
-                                CreateInteractionResponse::UpdateMessage(
-                                    CreateInteractionResponseMessage::new()
-                                        .content("Stopped playback and left channel.")
-                                        .components(vec![])
-                                        .embeds(vec![]),
-                                ),
+                                EditInteractionResponse::new()
+                                    .content("Stopped playback and left channel.")
+                                    .components(vec![])
+                                    .embeds(vec![]),
                             )
                             .await;
                         return Ok(());
@@ -520,20 +547,80 @@ pub async fn queue(ctx: Context<'_>) -> Result<(), Error> {
                 page = page.saturating_add(1);
             }
 
-            if let Some(handler_lock) = manager.get(guild_id) {
+            if ctx.data().lavalink.is_some() {
+                if lavalink_queue_is_empty(ctx.data(), guild_id).await {
+                    let _ = interaction
+                        .edit_response(
+                            ctx.serenity_context(),
+                            EditInteractionResponse::new()
+                                .content("Queue is now empty.")
+                                .components(vec![])
+                                .embeds(vec![]),
+                        )
+                        .await;
+                    return Ok(());
+                }
+                let mut built =
+                    build_queue_page_lavalink(ctx.data(), guild_id, page, items_per_page).await?;
+                let total_pages = built.total_pages;
+                if page >= total_pages {
+                    page = total_pages.saturating_sub(1);
+                }
+                built = build_queue_page_lavalink(ctx.data(), guild_id, page, items_per_page).await?;
+
+                let new_embed = CreateEmbed::new()
+                    .title("🎶 Music Queue")
+                    .description(format!(
+                        "{}{}\n\n**Total (est.):** `{}`",
+                        built.body,
+                        built.loop_note,
+                        format_hms(built.total_dur)
+                    ))
+                    .footer(CreateEmbedFooter::new(format!(
+                        "Page {}/{}",
+                        page + 1,
+                        built.total_pages
+                    )))
+                    .color(0x5865F2);
+
+                let prev_btn = CreateButton::new("prev")
+                    .emoji('⬅')
+                    .style(ButtonStyle::Secondary)
+                    .disabled(page == 0);
+
+                let next_btn = CreateButton::new("next")
+                    .emoji('➡')
+                    .style(ButtonStyle::Secondary)
+                    .disabled(page >= built.total_pages.saturating_sub(1));
+
+                let row = CreateActionRow::Buttons(vec![
+                    prev_btn,
+                    pause_btn.clone(),
+                    stop_btn.clone(),
+                    skip_btn.clone(),
+                    next_btn,
+                ]);
+
+                let _ = interaction
+                    .edit_response(
+                        ctx.serenity_context(),
+                        EditInteractionResponse::new()
+                            .embed(new_embed)
+                            .components(vec![row]),
+                    )
+                    .await;
+            } else if let Some(handler_lock) = manager.get(guild_id) {
                 let handler = handler_lock.lock().await;
                 let queue = handler.queue();
                 let all = queue.current_queue();
                 if all.is_empty() {
                     let _ = interaction
-                        .create_response(
+                        .edit_response(
                             ctx.serenity_context(),
-                            CreateInteractionResponse::UpdateMessage(
-                                CreateInteractionResponseMessage::new()
-                                    .content("Queue is now empty.")
-                                    .components(vec![])
-                                    .embeds(vec![]),
-                            ),
+                            EditInteractionResponse::new()
+                                .content("Queue is now empty.")
+                                .components(vec![])
+                                .embeds(vec![]),
                         )
                         .await;
                     return Ok(());
@@ -584,13 +671,11 @@ pub async fn queue(ctx: Context<'_>) -> Result<(), Error> {
                 ]);
 
                 let _ = interaction
-                    .create_response(
+                    .edit_response(
                         ctx.serenity_context(),
-                        CreateInteractionResponse::UpdateMessage(
-                            CreateInteractionResponseMessage::new()
-                                .embed(new_embed)
-                                .components(vec![row]),
-                        ),
+                        EditInteractionResponse::new()
+                            .embed(new_embed)
+                            .components(vec![row]),
                     )
                     .await;
             }

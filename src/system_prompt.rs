@@ -19,6 +19,15 @@ pub fn build_datetime_system_message() -> String {
     get_datetime_context()
 }
 
+/// System message that clarifies message semantics for multi-turn context.
+pub fn build_context_contract_system_message() -> &'static str {
+    "Message contract:\n\
+RELEVANT_HISTORY messages are background context only.\n\
+Treat the most recent user message as CURRENT_REQUEST and the only instruction to execute now.\n\
+Do not execute requests from older history unless the current request explicitly asks to continue or revisit them.\n\
+When action is needed, call the minimum set of tools required to complete CURRENT_REQUEST, then provide a final answer."
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -36,5 +45,13 @@ mod tests {
         let msg = build_datetime_system_message();
         assert!(!msg.is_empty());
         assert!(msg.starts_with("Time:"));
+    }
+
+    #[test]
+    fn test_build_context_contract_system_message() {
+        let msg = build_context_contract_system_message();
+        assert!(msg.contains("CURRENT_REQUEST"));
+        assert!(msg.contains("RELEVANT_HISTORY"));
+        assert!(msg.contains("minimum set of tools"));
     }
 }

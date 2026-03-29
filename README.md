@@ -56,6 +56,8 @@ sudo systemctl status mascord
 sudo journalctl -u mascord -f --no-pager
 ```
 
+For temporary LLM debugging, set `LOG_LLM_REQUESTS=true` and/or `LOG_LLM_RESPONSES=true` in `.env`, and keep `RUST_LOG` at `mascord=debug` so payload logs appear in journald.
+
 ### Stop the Bot
 
 **systemd:** `sudo systemctl stop mascord`  

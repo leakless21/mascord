@@ -7,13 +7,13 @@ use async_openai::types::{
     ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage,
     ChatCompletionRequestUserMessageArgs,
 };
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serenity::model::channel::Message;
 use serenity::model::id::ChannelId;
 
 use crate::cache::MessageCache;
 use crate::config::Config;
-use crate::db::Database;
+use crate::db::{Database, StoredChannelMessage};
 use tracing::{debug, warn};
 
 /// Formats cached messages into LLM-compatible context messages
@@ -183,10 +183,49 @@ impl ConversationContext {
             .filter_map(|msg| Self::format_message(&msg, bot_id))
             .collect();
 
+        let n_from_cache = short_term_messages.len();
+
+        // In-memory cache is empty after restarts and only fills as new messages arrive; persist
+        // the same rows in SQLite, so we can still show recent history to the LLM.
+        if short_term_messages.is_empty() {
+            let since = match cutoff_unix {
+                Some(ts) => DateTime::from_timestamp(ts, 0).unwrap_or_else(Utc::now),
+                None => DateTime::from_timestamp(0, 0).expect("epoch"),
+            };
+            match db.get_recent_messages_for_channel_context(
+                &channel_id.to_string(),
+                since,
+                limit,
+            ) {
+                Ok(mut rows) => {
+                    rows.reverse();
+                    for row in rows {
+                        if exclude_message_id.is_some_and(|ex| row.discord_id == ex.to_string()) {
+                            continue;
+                        }
+                        if let Some(m) = Self::format_stored_message(&row, bot_id) {
+                            short_term_messages.push(m);
+                        }
+                    }
+                    if !short_term_messages.is_empty() {
+                        debug!(
+                            "Context: Hydrated {} short-term messages from DB (cache had 0)",
+                            short_term_messages.len()
+                        );
+                    }
+                }
+                Err(e) => warn!(
+                    "Context: Failed to load recent messages from DB for channel {}: {}",
+                    channel_id, e
+                ),
+            }
+        }
+
         debug!(
-            "Context: Retrieved {} short-term messages for channel {}",
+            "Context: Retrieved {} short-term messages for channel {} ({} from in-memory cache)",
             short_term_messages.len(),
-            channel_id
+            channel_id,
+            n_from_cache
         );
         messages.append(&mut short_term_messages);
         messages
@@ -213,6 +252,34 @@ impl ConversationContext {
             let formatted = format!("[{}]: {}", msg.author.name, msg.content);
             ChatCompletionRequestUserMessageArgs::default()
                 .content(formatted)
+                .build()
+                .ok()
+                .map(|m| m.into())
+        }
+    }
+
+    fn format_stored_message(
+        row: &StoredChannelMessage,
+        bot_id: Option<u64>,
+    ) -> Option<ChatCompletionRequestMessage> {
+        if row.content.trim().is_empty() {
+            return None;
+        }
+        let uid = row.user_id.parse::<u64>().ok();
+        let is_bot = match (uid, bot_id) {
+            (Some(u), Some(b)) => u == b,
+            _ => false,
+        };
+        if is_bot {
+            ChatCompletionRequestAssistantMessageArgs::default()
+                .content(row.content.clone())
+                .build()
+                .ok()
+                .map(|m| m.into())
+        } else {
+            let label = format!("[user:{}]", row.user_id);
+            ChatCompletionRequestUserMessageArgs::default()
+                .content(format!("{}: {}", label, row.content))
                 .build()
                 .ok()
                 .map(|m| m.into())
@@ -246,6 +313,12 @@ mod tests {
             youtube_cookies: None,
             youtube_download_dir: "/tmp".to_string(),
             youtube_cleanup_after_secs: 3600,
+            lavalink_enabled: false,
+            lavalink_host: "127.0.0.1:2333".to_string(),
+            lavalink_password: String::new(),
+            lavalink_search_prefix: "ytsearch".to_string(),
+            lavalink_sponsorblock_categories: None,
+            lavalink_use_lavasearch: false,
             searxng_url: "http://localhost:8086".to_string(),
             web_tool_timeout_secs: 20,
             web_search_default_limit: 5,
@@ -255,6 +328,9 @@ mod tests {
             context_retention_hours: 24,
             llm_timeout_secs: 120,
             embedding_timeout_secs: 30,
+            log_llm_requests: false,
+            log_llm_responses: false,
+            log_llm_tool_args: false,
             voice_idle_timeout_secs: 180,
             voice_alone_timeout_secs: 90,
             voice_follow_user_move: false,
@@ -263,6 +339,7 @@ mod tests {
             dev_guild_id: None,
             register_commands: false,
             agent_confirm_timeout_secs: 300,
+            agent_run_timeout_secs: 180,
             embedding_indexer_enabled: true,
             embedding_indexer_batch_size: 25,
             embedding_indexer_interval_secs: 30,
@@ -371,6 +448,33 @@ mod tests {
 
         // Should only get 5 messages (the most recent ones)
         assert_eq!(context.len(), 5);
+    }
+
+    #[test]
+    fn test_context_empty_cache_falls_back_to_db() {
+        let cache = MessageCache::new(100);
+        let config = mock_config();
+        let db = Database::new(&config).unwrap();
+        db.execute_init().unwrap();
+
+        let ts = Utc::now().timestamp();
+        db.save_message("m1", "g1", "100", "1", "Play something", ts)
+            .unwrap();
+
+        let context = ConversationContext::get_context_for_channel(
+            &cache,
+            &db,
+            &config,
+            ChannelId::new(100),
+            Some(123),
+            None,
+            None,
+        );
+
+        assert!(
+            !context.is_empty(),
+            "expected DB fallback when in-memory cache has no rows"
+        );
     }
 
     #[test]
