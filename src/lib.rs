@@ -1,7 +1,6 @@
 pub mod cache;
 pub mod commands;
 pub mod config;
-pub mod response_embed;
 pub mod context;
 pub mod db;
 pub mod discord_text;
@@ -12,6 +11,7 @@ pub mod mention;
 pub mod rag;
 pub mod reminders;
 pub mod reply;
+pub mod response_embed;
 pub mod services;
 pub mod summarize;
 pub mod system_prompt;

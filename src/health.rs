@@ -55,51 +55,50 @@ pub async fn run_health_server(port: u16, ready: Arc<AtomicBool>) -> anyhow::Res
             let method = first_line.split_whitespace().next().unwrap_or("");
             let path = path_from_request_line(first_line);
 
-            let (status_line, body, content_type): (&str, String, &str) =
-                if method != "GET" {
-                    (
-                        "HTTP/1.1 405 Method Not Allowed",
-                        "method_not_allowed".to_string(),
-                        "text/plain; charset=utf-8",
-                    )
-                } else if path == Some("/healthz") {
-                    (
-                        "HTTP/1.1 200 OK",
-                        "ok".to_string(),
-                        "text/plain; charset=utf-8",
-                    )
-                } else if path == Some("/readyz") {
-                    if ready.load(Ordering::SeqCst) {
-                        (
-                            "HTTP/1.1 200 OK",
-                            "ready".to_string(),
-                            "text/plain; charset=utf-8",
-                        )
-                    } else {
-                        (
-                            "HTTP/1.1 503 Service Unavailable",
-                            "not_ready".to_string(),
-                            "text/plain; charset=utf-8",
-                        )
-                    }
-                } else if path == Some("/homepage") {
-                    let is_ready = ready.load(Ordering::SeqCst);
-                    let payload = serde_json::json!({
-                        "state": if is_ready { "ready" } else { "starting" },
-                        "uptime_seconds": started.elapsed().as_secs(),
-                    });
+            let (status_line, body, content_type): (&str, String, &str) = if method != "GET" {
+                (
+                    "HTTP/1.1 405 Method Not Allowed",
+                    "method_not_allowed".to_string(),
+                    "text/plain; charset=utf-8",
+                )
+            } else if path == Some("/healthz") {
+                (
+                    "HTTP/1.1 200 OK",
+                    "ok".to_string(),
+                    "text/plain; charset=utf-8",
+                )
+            } else if path == Some("/readyz") {
+                if ready.load(Ordering::SeqCst) {
                     (
                         "HTTP/1.1 200 OK",
-                        payload.to_string(),
-                        "application/json; charset=utf-8",
+                        "ready".to_string(),
+                        "text/plain; charset=utf-8",
                     )
                 } else {
                     (
-                        "HTTP/1.1 404 Not Found",
-                        "not_found".to_string(),
+                        "HTTP/1.1 503 Service Unavailable",
+                        "not_ready".to_string(),
                         "text/plain; charset=utf-8",
                     )
-                };
+                }
+            } else if path == Some("/homepage") {
+                let is_ready = ready.load(Ordering::SeqCst);
+                let payload = serde_json::json!({
+                    "state": if is_ready { "ready" } else { "starting" },
+                    "uptime_seconds": started.elapsed().as_secs(),
+                });
+                (
+                    "HTTP/1.1 200 OK",
+                    payload.to_string(),
+                    "application/json; charset=utf-8",
+                )
+            } else {
+                (
+                    "HTTP/1.1 404 Not Found",
+                    "not_found".to_string(),
+                    "text/plain; charset=utf-8",
+                )
+            };
 
             let response = format!(
                 "{status_line}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",

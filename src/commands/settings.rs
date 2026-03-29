@@ -239,10 +239,7 @@ pub async fn voice_alone_timeout(
         let msg = if timeout == 0 {
             "✅ Leave-when-alone is **disabled** for this server.".to_string()
         } else {
-            format!(
-                "✅ Voice alone timeout set to **{}** seconds.",
-                timeout
-            )
+            format!("✅ Voice alone timeout set to **{}** seconds.", timeout)
         };
         ctx.say(msg).await?;
         return Ok(());

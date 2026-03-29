@@ -30,10 +30,7 @@ impl Agent {
     /// Tool results after the latest user message mean this user turn already invoked tools;
     /// do not force another required-tool round (avoids loops when the model replies in text).
     fn has_tool_results_since_latest_user(messages: &[ChatCompletionRequestMessage]) -> bool {
-        let Some(idx) = messages
-            .iter()
-            .rposition(|m| matches!(m, ReqMsg::User(_)))
-        else {
+        let Some(idx) = messages.iter().rposition(|m| matches!(m, ReqMsg::User(_))) else {
             return false;
         };
         messages[idx + 1..]

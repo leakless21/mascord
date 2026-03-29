@@ -42,7 +42,9 @@ The user should be in a voice channel for play/join; the bot needs Connect + Spe
 /// Outcome shared by slash commands and the `music` tool.
 #[derive(Debug, Clone)]
 pub enum MusicOp {
-    Join { channel_id: u64 },
+    Join {
+        channel_id: u64,
+    },
     Play {
         added: usize,
         display_title: String,
@@ -156,7 +158,9 @@ impl MusicOp {
                 "thumbnail": thumbnail
             }),
             MusicOp::Loop { mode } => json!({"status": "ok", "action": "loop", "mode": mode}),
-            MusicOp::Clear { n } => json!({"status": "ok", "action": "clear", "cleared_upcoming": n}),
+            MusicOp::Clear { n } => {
+                json!({"status": "ok", "action": "clear", "cleared_upcoming": n})
+            }
             MusicOp::Shuffle => json!({"status": "ok", "action": "shuffle"}),
             MusicOp::Remove {
                 position,
@@ -174,9 +178,7 @@ impl MusicOp {
     }
 }
 
-pub fn play_embed(
-    op: &MusicOp,
-) -> Option<poise::serenity_prelude::CreateEmbed> {
+pub fn play_embed(op: &MusicOp) -> Option<poise::serenity_prelude::CreateEmbed> {
     use poise::serenity_prelude::CreateEmbed;
     match op {
         MusicOp::Play {
@@ -241,9 +243,7 @@ pub fn now_playing_embed(op: &MusicOp) -> Option<poise::serenity_prelude::Create
     use poise::serenity_prelude::CreateEmbed;
     match op {
         MusicOp::NowPlaying {
-            line,
-            thumbnail,
-            ..
+            line, thumbnail, ..
         } => {
             let mut e = CreateEmbed::new()
                 .title("🎶 Now playing")
@@ -382,9 +382,7 @@ pub async fn music_play(
         },
     )
     .await?;
-    let display_title = summary
-        .first_title
-        .unwrap_or_else(|| query.clone());
+    let display_title = summary.first_title.unwrap_or_else(|| query.clone());
     Ok(MusicOp::Play {
         added: summary.added,
         display_title,
@@ -426,14 +424,14 @@ pub async fn music_leave(
     info!("Leave: removing voice handler for guild {}", guild_id);
     data.music.cancel_alone_leave_task(guild_id.get());
     data.music.clear_voice_hooks(guild_id.get());
-    manager
-        .remove(guild_id)
-        .await
-        .map_err(|e| e.to_string())?;
+    manager.remove(guild_id).await.map_err(|e| e.to_string())?;
     Ok(MusicOp::Leave)
 }
 
-pub async fn music_pause(serenity_ctx: &serenity::Context, guild_id: serenity::GuildId) -> Result<MusicOp, String> {
+pub async fn music_pause(
+    serenity_ctx: &serenity::Context,
+    guild_id: serenity::GuildId,
+) -> Result<MusicOp, String> {
     let manager = songbird::get(serenity_ctx)
         .await
         .ok_or_else(|| "Songbird not initialized".to_string())?;
@@ -446,7 +444,10 @@ pub async fn music_pause(serenity_ctx: &serenity::Context, guild_id: serenity::G
     Ok(MusicOp::Pause)
 }
 
-pub async fn music_resume(serenity_ctx: &serenity::Context, guild_id: serenity::GuildId) -> Result<MusicOp, String> {
+pub async fn music_resume(
+    serenity_ctx: &serenity::Context,
+    guild_id: serenity::GuildId,
+) -> Result<MusicOp, String> {
     let manager = songbird::get(serenity_ctx)
         .await
         .ok_or_else(|| "Songbird not initialized".to_string())?;
@@ -499,11 +500,7 @@ pub async fn music_now_playing(
     let state = cur.get_info().await.ok();
     let pos = state.as_ref().map(|s| s.position);
     let dur = data.duration;
-    let line = format!(
-        "**{}**\n{}",
-        data.title,
-        format_pos_dur(pos, dur)
-    );
+    let line = format!("**{}**\n{}", data.title, format_pos_dur(pos, dur));
     Ok(MusicOp::NowPlaying {
         title: data.title.clone(),
         line,
@@ -594,7 +591,10 @@ pub async fn music_loop(
     }
 }
 
-pub async fn music_clear(serenity_ctx: &serenity::Context, guild_id: serenity::GuildId) -> Result<MusicOp, String> {
+pub async fn music_clear(
+    serenity_ctx: &serenity::Context,
+    guild_id: serenity::GuildId,
+) -> Result<MusicOp, String> {
     let manager = songbird::get(serenity_ctx)
         .await
         .ok_or_else(|| "Songbird not initialized".to_string())?;
@@ -615,7 +615,10 @@ pub async fn music_clear(serenity_ctx: &serenity::Context, guild_id: serenity::G
     Ok(MusicOp::Clear { n })
 }
 
-pub async fn music_shuffle(serenity_ctx: &serenity::Context, guild_id: serenity::GuildId) -> Result<MusicOp, String> {
+pub async fn music_shuffle(
+    serenity_ctx: &serenity::Context,
+    guild_id: serenity::GuildId,
+) -> Result<MusicOp, String> {
     let manager = songbird::get(serenity_ctx)
         .await
         .ok_or_else(|| "Songbird not initialized".to_string())?;
@@ -781,7 +784,10 @@ pub async fn music_stop_and_leave(
 }
 
 /// Pause or resume — used by `/queue` **Pause** button.
-pub async fn music_toggle_pause(serenity_ctx: &serenity::Context, guild_id: serenity::GuildId) -> Result<(), String> {
+pub async fn music_toggle_pause(
+    serenity_ctx: &serenity::Context,
+    guild_id: serenity::GuildId,
+) -> Result<(), String> {
     let manager = songbird::get(serenity_ctx)
         .await
         .ok_or_else(|| "Songbird not initialized".to_string())?;
@@ -802,7 +808,10 @@ pub async fn music_toggle_pause(serenity_ctx: &serenity::Context, guild_id: sere
     Ok(())
 }
 
-pub async fn music_skip_button(serenity_ctx: &serenity::Context, guild_id: serenity::GuildId) -> Result<(), String> {
+pub async fn music_skip_button(
+    serenity_ctx: &serenity::Context,
+    guild_id: serenity::GuildId,
+) -> Result<(), String> {
     let manager = songbird::get(serenity_ctx)
         .await
         .ok_or_else(|| "Songbird not initialized".to_string())?;

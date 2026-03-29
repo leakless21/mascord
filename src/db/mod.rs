@@ -1086,10 +1086,7 @@ impl Database {
 
     pub fn append_autodream_log(&self, line: &str) -> anyhow::Result<()> {
         let conn = self.lock_conn()?;
-        conn.execute(
-            "INSERT INTO autodream_log (line) VALUES (?1)",
-            [line],
-        )?;
+        conn.execute("INSERT INTO autodream_log (line) VALUES (?1)", [line])?;
         // Keep log bounded (best-effort).
         let _ = conn.execute(
             "DELETE FROM autodream_log WHERE id NOT IN (

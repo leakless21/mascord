@@ -77,7 +77,8 @@ pub async fn reminder(
             let message = match message {
                 Some(value) => value,
                 None => {
-                    ctx.say(SetReminderOp::EmptyMessage.discord_message()).await?;
+                    ctx.say(SetReminderOp::EmptyMessage.discord_message())
+                        .await?;
                     return Ok(());
                 }
             };

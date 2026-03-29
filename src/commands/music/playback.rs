@@ -221,30 +221,24 @@ async fn wait_for_immediate_track_play_or_error(
             );
         }
         match handle.get_info().await {
-            Ok(state) => {
-                match &state.playing {
-                    PlayMode::Errored(e) => {
-                        return Err(format!(
-                            "Audio could not be played: {}. Try another URL or update yt-dlp.",
-                            e
-                        ));
-                    }
-                    PlayMode::Play => return Ok(()),
-                    PlayMode::End | PlayMode::Stop => {
-                        return Err(
-                            "Track stopped before playback started (decode or source error)."
-                                .into(),
-                        );
-                    }
-                    PlayMode::Pause => {}
-                    _ => {}
+            Ok(state) => match &state.playing {
+                PlayMode::Errored(e) => {
+                    return Err(format!(
+                        "Audio could not be played: {}. Try another URL or update yt-dlp.",
+                        e
+                    ));
                 }
-            }
+                PlayMode::Play => return Ok(()),
+                PlayMode::End | PlayMode::Stop => {
+                    return Err(
+                        "Track stopped before playback started (decode or source error).".into(),
+                    );
+                }
+                PlayMode::Pause => {}
+                _ => {}
+            },
             Err(e) => {
-                return Err(format!(
-                    "Lost audio track before playback started: {}",
-                    e
-                ));
+                return Err(format!("Lost audio track before playback started: {}", e));
             }
         }
         tokio::time::sleep(Duration::from_millis(90)).await;
@@ -560,10 +554,7 @@ pub async fn replay_queue_snapshot(
             );
             break;
         }
-        if is_url
-            && !voice_allow_duplicate_urls
-            && queue_contains_url_source(&handler, &query)
-        {
+        if is_url && !voice_allow_duplicate_urls && queue_contains_url_source(&handler, &query) {
             continue;
         }
         enqueue_one(

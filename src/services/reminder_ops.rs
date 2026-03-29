@@ -61,7 +61,10 @@ pub fn truncate_snippet(message: &str, max_chars: usize) -> String {
 }
 
 pub fn clamp_list_limit_option_u8(limit: Option<u8>) -> usize {
-    limit.map(|v| v as usize).unwrap_or(10).min(MAX_LIST_RESULTS)
+    limit
+        .map(|v| v as usize)
+        .unwrap_or(10)
+        .min(MAX_LIST_RESULTS)
 }
 
 pub fn clamp_list_limit_usize(limit: usize) -> usize {
@@ -128,9 +131,7 @@ impl SetReminderOp {
                 remind_at,
             } => {
                 let unix = remind_at.timestamp();
-                format!(
-                    "✅ Reminder set for <t:{unix}:F> (<t:{unix}:R>). ID: `{reminder_id}`"
-                )
+                format!("✅ Reminder set for <t:{unix}:F> (<t:{unix}:R>). ID: `{reminder_id}`")
             }
             SetReminderOp::EmptyWhen => format!(
                 "❌ Provide `when` and `message` to set a reminder.\n\n{REMINDER_HELP_TEXT}"
@@ -174,7 +175,6 @@ impl SetReminderOp {
             }
         }
     }
-
 }
 
 /// Set a reminder (guild channel). DB errors propagate as `Err`.
@@ -222,7 +222,10 @@ pub async fn list_reminders(
 ) -> anyhow::Result<Vec<ReminderListItem>> {
     let limit = clamp_list_limit_usize(limit);
     let rows = svc.list_pending_reminders(user_id, limit).await?;
-    Ok(rows.into_iter().map(ReminderListItem::from_record).collect())
+    Ok(rows
+        .into_iter()
+        .map(ReminderListItem::from_record)
+        .collect())
 }
 
 #[derive(Debug)]
@@ -237,9 +240,7 @@ impl CancelReminderOp {
             CancelReminderOp::Cancelled { reminder_id } => {
                 format!("✅ Reminder `{reminder_id}` cancelled.")
             }
-            CancelReminderOp::NotFound => {
-                "❌ No pending reminder found with that ID.".to_string()
-            }
+            CancelReminderOp::NotFound => "❌ No pending reminder found with that ID.".to_string(),
         }
     }
 
@@ -307,7 +308,10 @@ mod tests {
         assert_eq!(super::clamp_list_limit_option_u8(None), 10);
         assert_eq!(super::clamp_list_limit_option_u8(Some(1)), 1);
         assert_eq!(super::clamp_list_limit_option_u8(Some(20)), 20);
-        assert_eq!(super::clamp_list_limit_option_u8(Some(99)), MAX_LIST_RESULTS);
+        assert_eq!(
+            super::clamp_list_limit_option_u8(Some(99)),
+            MAX_LIST_RESULTS
+        );
     }
 
     #[test]
@@ -336,10 +340,7 @@ mod tests {
         let j = op.to_tool_json();
         assert_eq!(j["status"], "ok");
         assert_eq!(j["reminder_id"], 7);
-        assert_eq!(
-            j["remind_at_unix"].as_i64().unwrap(),
-            remind_at.timestamp()
-        );
+        assert_eq!(j["remind_at_unix"].as_i64().unwrap(), remind_at.timestamp());
     }
 
     #[tokio::test]

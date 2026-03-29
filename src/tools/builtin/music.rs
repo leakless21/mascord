@@ -75,16 +75,7 @@ pub async fn dispatch_music_tool(
                 .get("playlist")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            match music_play(
-                serenity_ctx,
-                data,
-                guild_id,
-                user_id,
-                query,
-                playlist,
-            )
-            .await
-            {
+            match music_play(serenity_ctx, data, guild_id, user_id, query, playlist).await {
                 Ok(op) => Ok(op.to_tool_json()),
                 Err(e) => Ok(json!({"status": "error", "message": e})),
             }

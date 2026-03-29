@@ -1,7 +1,7 @@
 use crate::context::ConversationContext;
-use crate::response_embed::send_embed_reply;
 use crate::discord_text::{extract_message_text, strip_bot_mentions};
 use crate::llm::confirm::ToolConfirmationContext;
+use crate::response_embed::send_embed_reply;
 use crate::services::user_memory::UserMemoryService;
 use crate::system_prompt;
 use crate::{Data, Error};

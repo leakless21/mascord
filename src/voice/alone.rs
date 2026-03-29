@@ -1,8 +1,8 @@
 //! Leave voice when no human listeners remain in the bot's channel (`VoiceStateUpdate`).
 
 use crate::Data;
-use poise::serenity_prelude::{Cache, ChannelId, Context};
 use poise::serenity_prelude as serenity;
+use poise::serenity_prelude::{Cache, ChannelId, Context};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};

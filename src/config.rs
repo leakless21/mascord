@@ -458,7 +458,10 @@ impl std::fmt::Debug for Config {
             .field("voice_alone_timeout_secs", &self.voice_alone_timeout_secs)
             .field("voice_follow_user_move", &self.voice_follow_user_move)
             .field("max_queue_tracks", &self.max_queue_tracks)
-            .field("voice_allow_duplicate_urls", &self.voice_allow_duplicate_urls)
+            .field(
+                "voice_allow_duplicate_urls",
+                &self.voice_allow_duplicate_urls,
+            )
             .field("dev_guild_id", &self.dev_guild_id)
             .field("register_commands", &self.register_commands)
             .field(

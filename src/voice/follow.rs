@@ -2,8 +2,8 @@
 
 use crate::voice::alone::{count_humans_in_voice_channel, serenity_channel_from_songbird};
 use crate::Data;
-use poise::serenity_prelude::Context;
 use poise::serenity_prelude as serenity;
+use poise::serenity_prelude::Context;
 use tracing::info;
 
 /// If enabled, move the bot to `new.channel_id` when a user was the last human in the bot’s

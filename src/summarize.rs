@@ -246,7 +246,6 @@ Keep it accurate and preserve key decisions, constraints, and ongoing threads.\n
 
         Ok(current)
     }
-
 }
 
 /// Shared by rolling summarization and [`crate::services::autodream`] so milestones stay aligned with summary text.

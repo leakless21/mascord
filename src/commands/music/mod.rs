@@ -19,8 +19,12 @@ use crate::services::music_ops::{
 use crate::{Context, Error};
 use poise::serenity_prelude::{
     ButtonStyle, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedFooter,
-    CreateInteractionResponse, CreateInteractionResponseMessage,
+    CreateInteractionResponse, CreateInteractionResponseMessage, EditMessage,
 };
+
+/// Wall-clock budget for `/play` and `/queue` component sessions (avoids indefinite extension
+/// when interactions keep arriving before each per-wait timeout).
+const MUSIC_COMPONENT_SESSION: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
 /// Join a voice channel
 #[poise::command(
@@ -81,13 +85,32 @@ pub async fn play(
                 .components(vec![row.clone()]),
         )
         .await?;
-    let message = reply.into_message().await?;
+    let mut message = reply.into_message().await?;
+    let deadline = std::time::Instant::now() + MUSIC_COMPONENT_SESSION;
 
-    while let Some(interaction) = message
-        .await_component_interaction(ctx)
-        .timeout(std::time::Duration::from_secs(60 * 5))
-        .await
-    {
+    loop {
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            let _ = message
+                .edit(
+                    ctx.serenity_context(),
+                    EditMessage::new().components(Vec::new()),
+                )
+                .await;
+            return Ok(());
+        }
+        let wait = deadline.saturating_duration_since(now);
+
+        let Some(interaction) = message.await_component_interaction(ctx).timeout(wait).await else {
+            let _ = message
+                .edit(
+                    ctx.serenity_context(),
+                    EditMessage::new().components(Vec::new()),
+                )
+                .await;
+            return Ok(());
+        };
+
         let id = interaction.data.custom_id.as_str();
         if id == "stop" {
             let _ = music_stop_and_leave(ctx.serenity_context(), ctx.data(), guild_id).await;
@@ -112,8 +135,7 @@ pub async fn play(
             continue;
         }
 
-        if let Some(new_embed) =
-            play_controls_refresh_embed(ctx.serenity_context(), guild_id).await
+        if let Some(new_embed) = play_controls_refresh_embed(ctx.serenity_context(), guild_id).await
         {
             let _ = interaction
                 .create_response(
@@ -140,8 +162,6 @@ pub async fn play(
             return Ok(());
         }
     }
-
-    Ok(())
 }
 
 fn play_message_control_row() -> CreateActionRow {
@@ -439,13 +459,33 @@ pub async fn queue(ctx: Context<'_>) -> Result<(), Error> {
                     .components(vec![row.clone()]),
             )
             .await?;
-        let message = reply.into_message().await?;
+        let mut message = reply.into_message().await?;
+        let deadline = std::time::Instant::now() + MUSIC_COMPONENT_SESSION;
 
-        while let Some(interaction) = message
-            .await_component_interaction(ctx)
-            .timeout(std::time::Duration::from_secs(60 * 5))
-            .await
-        {
+        loop {
+            let now = std::time::Instant::now();
+            if now >= deadline {
+                let _ = message
+                    .edit(
+                        ctx.serenity_context(),
+                        EditMessage::new().components(Vec::new()),
+                    )
+                    .await;
+                return Ok(());
+            }
+            let wait = deadline.saturating_duration_since(now);
+
+            let Some(interaction) = message.await_component_interaction(ctx).timeout(wait).await
+            else {
+                let _ = message
+                    .edit(
+                        ctx.serenity_context(),
+                        EditMessage::new().components(Vec::new()),
+                    )
+                    .await;
+                return Ok(());
+            };
+
             let custom_id = &interaction.data.custom_id;
 
             if ["pause", "skip", "stop"].contains(&custom_id.as_str()) {
@@ -457,7 +497,8 @@ pub async fn queue(ctx: Context<'_>) -> Result<(), Error> {
                         let _ = music_skip_button(ctx.serenity_context(), guild_id).await;
                     }
                     "stop" => {
-                        let _ = music_stop_and_leave(ctx.serenity_context(), ctx.data(), guild_id).await;
+                        let _ = music_stop_and_leave(ctx.serenity_context(), ctx.data(), guild_id)
+                            .await;
                         let _ = interaction
                             .create_response(
                                 ctx.serenity_context(),

@@ -66,10 +66,7 @@ impl VoiceEventHandler for TrackErrorHandler {
             let mut saw_error = false;
             for (state, _) in track_list.iter() {
                 if let PlayMode::Errored(e) = &state.playing {
-                    warn!(
-                        "Track playback error in guild {}: {}",
-                        self.guild_id, e
-                    );
+                    warn!("Track playback error in guild {}: {}", self.guild_id, e);
                     saw_error = true;
                 }
             }
@@ -123,7 +120,8 @@ impl VoiceEventHandler for DriverLifecycleHandler {
             EventContext::DriverConnect(c) => {
                 tracing::debug!(
                     "Voice driver connected in guild {} (channel {})",
-                    self.guild_id, c.channel_id
+                    self.guild_id,
+                    c.channel_id
                 );
             }
             _ => {}

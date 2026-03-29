@@ -105,11 +105,8 @@ impl AutoDreamService {
                     .db
                     .run_blocking({
                         let user_id = user_id.clone();
-                        let line = format!(
-                            "user {} error: {}",
-                            user_id,
-                            truncate_err(&e.to_string())
-                        );
+                        let line =
+                            format!("user {} error: {}", user_id, truncate_err(&e.to_string()));
                         move |db| db.append_autodream_log(&line)
                     })
                     .await;
@@ -323,7 +320,7 @@ CURRENT SUMMARY:\n{}",
                 "channel {}: no change (NO_UPDATE or empty)",
                 channel_id
             ))
-                .await?;
+            .await?;
             return Ok(());
         }
 
@@ -352,7 +349,7 @@ CURRENT SUMMARY:\n{}",
                 "channel {}: unchanged after normalize",
                 channel_id
             ))
-                .await?;
+            .await?;
             return Ok(());
         }
 

@@ -211,15 +211,9 @@ mod tests {
     async fn dispatch_help_needs_no_guild() {
         let db = Database::new(&test_memory_config()).unwrap();
         db.execute_init().unwrap();
-        let r = dispatch_reminder_tool(
-            json!({"action": "help"}),
-            None,
-            100,
-            1,
-            db,
-        )
-        .await
-        .unwrap();
+        let r = dispatch_reminder_tool(json!({"action": "help"}), None, 100, 1, db)
+            .await
+            .unwrap();
         assert_eq!(r["status"], "ok");
         assert!(r["help"].as_str().unwrap().contains("/reminder"));
     }
@@ -286,15 +280,9 @@ mod tests {
         .unwrap();
         assert_eq!(cancel["status"], "ok");
 
-        let list2 = dispatch_reminder_tool(
-            json!({"action": "list"}),
-            None,
-            channel,
-            user,
-            db,
-        )
-        .await
-        .unwrap();
+        let list2 = dispatch_reminder_tool(json!({"action": "list"}), None, channel, user, db)
+            .await
+            .unwrap();
         assert!(list2["reminders"].as_array().unwrap().is_empty());
     }
 
@@ -329,15 +317,9 @@ mod tests {
     async fn dispatch_unknown_action() {
         let db = Database::new(&test_memory_config()).unwrap();
         db.execute_init().unwrap();
-        let r = dispatch_reminder_tool(
-            json!({"action": "nope"}),
-            Some(1),
-            1,
-            1,
-            db,
-        )
-        .await
-        .unwrap();
+        let r = dispatch_reminder_tool(json!({"action": "nope"}), Some(1), 1, 1, db)
+            .await
+            .unwrap();
         assert_eq!(r["status"], "error");
         assert!(r["message"].as_str().unwrap().contains("Unknown"));
     }
@@ -356,15 +338,9 @@ mod tests {
     async fn dispatch_list_clamps_high_limit() {
         let db = Database::new(&test_memory_config()).unwrap();
         db.execute_init().unwrap();
-        let r = dispatch_reminder_tool(
-            json!({"action": "list", "limit": 999}),
-            None,
-            1,
-            1,
-            db,
-        )
-        .await
-        .unwrap();
+        let r = dispatch_reminder_tool(json!({"action": "list", "limit": 999}), None, 1, 1, db)
+            .await
+            .unwrap();
         assert_eq!(r["status"], "ok");
     }
 }
